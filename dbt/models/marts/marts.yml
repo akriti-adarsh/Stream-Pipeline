@@ -1,0 +1,235 @@
+version: 2
+
+models:
+  - name: fct_rides
+    description: >
+      One row per closed ride, enriched with payment and city. Incremental with
+      a merge strategy on ride_id and an event-time lookback window; the
+      reasoning lives as a comment in the model file.
+    columns:
+      - name: ride_id
+        description: Primary key.
+        data_tests: [not_null, unique]
+      - name: rider_id
+        description: Requesting rider.
+        data_tests: [not_null]
+      - name: driver_id
+        description: Driver; null for never-matched rides.
+      - name: city_id
+        description: City key.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_cities')
+                field: city_id
+      - name: city_name
+        description: Denormalised city name.
+      - name: terminal_state
+        description: Ride outcome.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [completed, cancelled, abandoned]
+      - name: event_seq
+        description: Events folded into the close.
+        data_tests: [not_null]
+      - name: requested_at
+        description: Request time; the incremental filter column.
+        data_tests: [not_null]
+      - name: matched_at
+        description: Match time.
+      - name: driver_arrived_at
+        description: Arrival time.
+      - name: started_at
+        description: Trip start.
+      - name: ended_at
+        description: Terminal event time.
+      - name: time_to_match_sec
+        description: Request to match seconds.
+      - name: time_to_pickup_sec
+        description: Match to arrival seconds.
+      - name: ride_duration_sec
+        description: Start to completion seconds.
+      - name: haversine_distance_km
+        description: Trip distance.
+      - name: avg_speed_kmh
+        description: Trip average speed.
+      - name: is_late_arrival
+        description: Pickup exceeded 600 seconds.
+        data_tests: [not_null]
+      - name: fare_cents
+        description: Fare (completed only).
+      - name: surge_multiplier
+        description: Surge at request time.
+        data_tests: [not_null]
+      - name: promo_code
+        description: Applied promo, when any.
+      - name: txn_id
+        description: Payment id when paid.
+      - name: paid_amount_cents
+        description: Paid amount.
+      - name: payment_status
+        description: Payment outcome when paid.
+      - name: payment_method
+        description: Payment instrument when paid.
+      - name: paid_at
+        description: Payment time.
+      - name: is_paid
+        description: Whether a payment has arrived yet.
+        data_tests: [not_null]
+      - name: ingested_at
+        description: Session landing time.
+        data_tests: [not_null]
+
+  - name: fct_driver_shifts
+    description: One row per sessionized driver shift.
+    columns:
+      - name: shift_id
+        description: Primary key (driver_id dot shift ordinal).
+        data_tests: [not_null, unique]
+      - name: driver_id
+        description: Driver.
+        data_tests: [not_null]
+      - name: city_id
+        description: Driver's city.
+        data_tests: [not_null]
+      - name: shift_started_at
+        description: First ping of the shift.
+        data_tests: [not_null]
+      - name: shift_ended_at
+        description: Last ping of the shift.
+        data_tests: [not_null]
+      - name: active_minutes
+        description: Shift length in minutes.
+        data_tests: [not_null]
+      - name: distance_km
+        description: Sum of haversine steps between consecutive pings.
+        data_tests: [not_null]
+      - name: ping_count
+        description: Pings in the shift.
+        data_tests: [not_null]
+      - name: avg_speed_kmh
+        description: Mean reported speed.
+      - name: on_trip_share
+        description: Share of pings spent on trips.
+
+  - name: dim_cities
+    description: City dimension from the committed seed.
+    columns:
+      - name: city_id
+        description: Primary key.
+        data_tests: [not_null, unique]
+      - name: city_name
+        description: Display name.
+        data_tests: [not_null, unique]
+      - name: center_lat
+        description: City centre latitude.
+        data_tests: [not_null]
+      - name: center_lon
+        description: City centre longitude.
+        data_tests: [not_null]
+      - name: demand_weight
+        description: Relative demand share used by the generator.
+        data_tests: [not_null]
+
+  - name: dim_drivers
+    description: SCD Type 2 driver dimension materialised from the dbt snapshot.
+    columns:
+      - name: driver_version_key
+        description: Surrogate key, one per driver version.
+        data_tests: [not_null, unique]
+      - name: driver_id
+        description: Natural key; repeats across versions.
+        data_tests: [not_null]
+      - name: city_id
+        description: City during this version.
+        data_tests: [not_null]
+      - name: status
+        description: Fleet status during this version.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [idle, en_route_to_pickup, on_trip, offline]
+      - name: tier
+        description: Earned tier during this version.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [bronze, silver, gold]
+      - name: completed_rides
+        description: Lifetime completed rides at snapshot time.
+        data_tests: [not_null]
+      - name: last_seen_at
+        description: Latest ping in this version.
+      - name: valid_from
+        description: Version validity start (wall clock).
+        data_tests: [not_null]
+      - name: valid_to
+        description: Version validity end; null for the current version.
+      - name: is_current
+        description: Convenience flag for the open version.
+        data_tests: [not_null]
+
+  - name: agg_city_hourly
+    description: Hourly per-city rollup feeding the dashboard.
+    columns:
+      - name: city_id
+        description: City key.
+        data_tests: [not_null]
+      - name: city_name
+        description: City name.
+      - name: hour_start
+        description: Hour bucket (event time).
+        data_tests: [not_null]
+      - name: rides_closed
+        description: Rides closed in the hour.
+        data_tests: [not_null]
+      - name: rides_completed
+        description: Completed rides.
+        data_tests: [not_null]
+      - name: rides_cancelled
+        description: Cancelled rides.
+        data_tests: [not_null]
+      - name: rides_abandoned
+        description: Abandoned closes.
+        data_tests: [not_null]
+      - name: completion_rate
+        description: Completed over closed.
+      - name: avg_surge
+        description: Mean surge of closed rides.
+      - name: p50_time_to_match_sec
+        description: Median time to match.
+      - name: p95_time_to_match_sec
+        description: 95th percentile time to match.
+      - name: gross_fares_cents
+        description: Sum of completed fares.
+      - name: collected_cents
+        description: Sum of successfully collected payments.
+      - name: late_arrivals
+        description: Rides with late pickup.
+        data_tests: [not_null]
+
+  - name: int_rides__enriched
+    description: Sessions joined to payments and cities (intermediate).
+    columns:
+      - name: ride_id
+        description: Primary key.
+        data_tests: [not_null, unique]
+
+  - name: int_drivers__shifts
+    description: Sessionized ping stream (intermediate).
+    columns:
+      - name: shift_id
+        description: Primary key.
+        data_tests: [not_null, unique]
+
+  - name: int_drivers__current
+    description: Snapshot source; current mutable state per driver.
+    columns:
+      - name: driver_id
+        description: Primary key.
+        data_tests: [not_null, unique]

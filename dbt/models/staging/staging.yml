@@ -1,0 +1,206 @@
+version: 2
+
+models:
+  - name: stg_rides__events
+    description: Ride lifecycle events, one row per (ride_id, event_seq), straight rename of raw.
+    columns:
+      - name: event_id
+        description: Globally unique event id (ride_id dot lifecycle ordinal).
+        data_tests: [not_null, unique]
+      - name: ride_id
+        description: Ride the event belongs to.
+        data_tests: [not_null]
+      - name: event_seq
+        description: Deterministic lifecycle ordinal, 1 requested through 6 cancelled.
+        data_tests: [not_null]
+      - name: event_type
+        description: Lifecycle stage name.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [requested, matched, driver_arrived, started, completed, cancelled]
+      - name: event_at
+        description: Event time (simulation clock, UTC).
+        data_tests: [not_null]
+      - name: rider_id
+        description: Requesting rider.
+        data_tests: [not_null]
+      - name: driver_id
+        description: Assigned driver; null until matched.
+      - name: city_id
+        description: Simulated city.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_cities')
+                field: city_id
+      - name: pickup_lat
+        description: Pickup latitude.
+        data_tests: [not_null]
+      - name: pickup_lon
+        description: Pickup longitude.
+        data_tests: [not_null]
+      - name: dropoff_lat
+        description: Dropoff latitude; nullable (unknown mid-ride, nulled by imperfection layer).
+      - name: dropoff_lon
+        description: Dropoff longitude; nullable like dropoff_lat.
+      - name: fare_cents
+        description: Fare in paise; only on completed events.
+      - name: surge_multiplier
+        description: Surge at request time; 1.0 or higher.
+        data_tests: [not_null]
+      - name: payload_version
+        description: Schema version of the producing generator (1 or 2).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2]
+                quote: false
+      - name: promo_code
+        description: Promo applied; v2 payloads only, mostly null.
+      - name: kafka_partition
+        description: Source partition (lineage back to the broker).
+        data_tests: [not_null]
+      - name: kafka_offset
+        description: Source offset (lineage back to the broker).
+        data_tests: [not_null]
+      - name: ingested_at
+        description: Wall-clock time the sink landed the row.
+        data_tests: [not_null]
+
+  - name: stg_rides__sessions
+    description: One row per closed ride from the transactional sessionizer.
+    columns:
+      - name: ride_id
+        description: Primary key.
+        data_tests: [not_null, unique]
+      - name: rider_id
+        description: Requesting rider.
+        data_tests: [not_null]
+      - name: driver_id
+        description: Driver; null when the ride never matched.
+      - name: city_id
+        description: Simulated city.
+        data_tests: [not_null]
+      - name: terminal_state
+        description: How the ride ended.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [completed, cancelled, abandoned]
+      - name: event_seq
+        description: Number of lifecycle events folded into the close; sink idempotency key part.
+        data_tests: [not_null]
+      - name: requested_at
+        description: Request time.
+        data_tests: [not_null]
+      - name: matched_at
+        description: Match time; null if never matched.
+      - name: driver_arrived_at
+        description: Driver arrival time.
+      - name: started_at
+        description: Trip start time.
+      - name: ended_at
+        description: Terminal event time; null for abandoned closes.
+      - name: time_to_match_sec
+        description: Seconds from request to match.
+      - name: time_to_pickup_sec
+        description: Seconds from match to driver arrival.
+      - name: ride_duration_sec
+        description: Seconds from start to completion; completed rides only.
+      - name: haversine_distance_km
+        description: Great-circle pickup to dropoff distance.
+      - name: avg_speed_kmh
+        description: Distance over duration.
+      - name: is_late_arrival
+        description: True when pickup took longer than 600 seconds.
+        data_tests: [not_null]
+      - name: fare_cents
+        description: Fare for completed rides.
+      - name: surge_multiplier
+        description: Surge at request time.
+        data_tests: [not_null]
+      - name: promo_code
+        description: Promo carried from v2 events.
+      - name: pickup_lat
+        description: Pickup latitude.
+        data_tests: [not_null]
+      - name: pickup_lon
+        description: Pickup longitude.
+        data_tests: [not_null]
+      - name: dropoff_lat
+        description: Dropoff latitude when known.
+      - name: dropoff_lon
+        description: Dropoff longitude when known.
+      - name: ingested_at
+        description: Sink landing time.
+        data_tests: [not_null]
+
+  - name: stg_payments__transactions
+    description: Payment per completed ride, deliberately late by 5 to 90 seconds.
+    columns:
+      - name: txn_id
+        description: Primary key.
+        data_tests: [not_null, unique]
+      - name: ride_id
+        description: Paid ride.
+        data_tests: [not_null]
+      - name: amount_cents
+        description: Amount in paise; matches fare for successful payments.
+        data_tests: [not_null]
+      - name: status
+        description: Payment outcome.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [completed, failed, refunded]
+      - name: method
+        description: Payment instrument.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [card, wallet, cash]
+      - name: paid_at
+        description: Transaction time.
+        data_tests: [not_null]
+      - name: ingested_at
+        description: Sink landing time.
+        data_tests: [not_null]
+
+  - name: stg_drivers__locations
+    description: GPS pings; the high-volume stream.
+    columns:
+      - name: driver_id
+        description: Pinging driver.
+        data_tests: [not_null]
+      - name: pinged_at
+        description: Ping time.
+        data_tests: [not_null]
+      - name: lat
+        description: Latitude inside the city bounding box.
+        data_tests: [not_null]
+      - name: lon
+        description: Longitude inside the city bounding box.
+        data_tests: [not_null]
+      - name: speed_kmh
+        description: Speed conditioned on status.
+        data_tests: [not_null]
+      - name: heading
+        description: Compass heading 0 to 360.
+        data_tests: [not_null]
+      - name: status
+        description: Fleet status at ping time.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [idle, en_route_to_pickup, on_trip, offline]
+      - name: city_id
+        description: Driver's home city.
+        data_tests: [not_null]
