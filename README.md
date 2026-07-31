@@ -73,7 +73,7 @@ flowchart LR
 | 4 | Generator: geospatial driver movement, diurnal load | done |
 | 5 | Generator: configurable imperfections, schema evolution | done |
 | 6 | Infra: Redpanda, Console, Postgres, MinIO in compose | done |
-| 7 | Sessionizer with local state store | pending |
+| 7 | Sessionizer with local state store | done |
 | 8 | Kafka transactions for exactly-once | pending |
 | 9 | Idempotent Postgres sink with offset table | pending |
 | 10 | DLQ envelope and replay script | pending |
