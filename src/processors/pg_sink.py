@@ -46,6 +46,7 @@ from common.schemas import (
     ride_session_deserializer,
 )
 from common.times import to_epoch_ms
+from dlq.envelope import DlqProducer
 from generator.state_machine import EVENT_SEQ, RideEventType
 
 PoisonHandler = Callable[[Any, Exception], None]
@@ -341,9 +342,24 @@ class PgSink:
         self._deserializers = (
             deserializers if deserializers is not None else build_deserializers(cfg.registry_url)
         )
-        self._on_poison: PoisonHandler = on_poison if on_poison is not None else self._log_poison
+        self._dlq: DlqProducer | None = None
+        if on_poison is not None:
+            self._on_poison: PoisonHandler = on_poison
+        else:
+            self._dlq = DlqProducer(cfg.bootstrap, cfg.group_id)
+            self._on_poison = self._dlq_poison
         self.rows_written = 0
         self.poison_seen = 0
+
+    def _dlq_poison(self, msg: Any, error: Exception) -> None:
+        assert self._dlq is not None
+        self._dlq.handle(msg, error)
+        self._log.warning(
+            "poison message sent to DLQ",
+            extra=with_ctx(
+                topic=msg.topic(), partition=msg.partition(), offset=msg.offset(), error=str(error)
+            ),
+        )
 
     def _log_poison(self, msg: Any, error: Exception) -> None:
         self._log.warning(
@@ -405,6 +421,8 @@ class PgSink:
                 self.process_batch(msgs)
                 batches += 1
         finally:
+            if self._dlq is not None:
+                self._dlq.flush()
             self._consumer.close()
 
     def process_batch(self, msgs: list[Any]) -> dict[str, int]:

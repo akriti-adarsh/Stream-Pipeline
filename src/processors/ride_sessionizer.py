@@ -49,6 +49,8 @@ from common.schemas import (
     ride_session_serializer,
 )
 from common.times import to_epoch_ms
+from common.topics import dlq_topic
+from dlq.envelope import Envelope, build_envelope, envelope_bytes
 from processors.session_builder import (
     SESSION_TIMEOUT_MS_DEFAULT,
     RideAccumulator,
@@ -220,6 +222,7 @@ class Sessionizer:
     def process_batch(self, msgs: list[Any]) -> list[dict[str, Any]]:
         journal: list[JournalRow] = []
         batch_state: dict[int, _PartitionState] = {}
+        poisons: list[Envelope] = []
 
         for msg in msgs:
             if msg.error() is not None:
@@ -235,7 +238,8 @@ class Sessionizer:
                 value = self._deserialize(msg.topic(), msg.value())
             except Exception as error:  # poison messages take the DLQ path
                 self.poison_seen += 1
-                self._on_poison(msg, error if isinstance(error, Exception) else Exception(error))
+                poisons.append(build_envelope(msg, error, self._cfg.group_id))
+                self._on_poison(msg, error)
                 continue
             value = {**value, "event_ts": to_epoch_ms(value["event_ts"])}
             ride_id = str(value["ride_id"])
@@ -259,7 +263,7 @@ class Sessionizer:
             self._log.warning("crash hook firing inside the two-store gap")
             os._exit(137)
 
-        self._transact(sessions, batch_state)
+        self._transact(sessions, batch_state, poisons)
         for close in closes:
             self._accs.pop(close.ride_id, None)
             self._acc_partition.pop(close.ride_id, None)
@@ -287,7 +291,10 @@ class Sessionizer:
         return closes, sessions
 
     def _transact(
-        self, sessions: list[dict[str, Any]], batch_state: dict[int, _PartitionState]
+        self,
+        sessions: list[dict[str, Any]],
+        batch_state: dict[int, _PartitionState],
+        poisons: list[Envelope] | None = None,
     ) -> None:
         offsets = [
             TopicPartition(topics.RIDES_EVENTS, partition, state.max_offset_in_batch + 1)
@@ -302,6 +309,14 @@ class Sessionizer:
                     topic=topics.RIDES_SESSIONS,
                     key=str(session["ride_id"]).encode(),
                     value=payload,
+                )
+            for envelope in poisons or []:
+                # Dead letters ride in the same transaction: a DLQ record exists
+                # if and only if the offsets that produced it were committed.
+                self._producer.produce(
+                    topic=dlq_topic(envelope.source_topic),
+                    key=envelope.key,
+                    value=envelope_bytes(envelope),
                 )
             self._producer.send_offsets_to_transaction(
                 offsets, self._consumer.consumer_group_metadata()

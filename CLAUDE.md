@@ -18,9 +18,9 @@ The spec is docs/BUILD_SPEC.md. This file is rules and state; the spec defines t
    green commit and update State. Do not start work you cannot finish.
 
 ## State (update at every commit)
-- Plan position: 9 of 28. Last completed: "feat(processors): idempotent postgres sink with offset table"
-- Suite at last commit: 92 passed, 1 deselected in 43.80s · Coverage: 85.8%
-- Open deviations: 0 · Next up: commit 10
+- Plan position: 10 of 28. Last completed: "feat(dlq): dead letter envelope and replay script"
+- Suite at last commit: 100 passed, 1 deselected in 51.66s · Coverage: 85.6%
+- Open deviations: 0 · Next up: commits 11–15 (session B)
 - Live smoke: compose core healthy; generator kafka sink 15s -> 9609 events (~640/s), 4 subjects, 9 topics; stack left RUNNING for processor work
 - Infra pre-verified by agents: compose core healthy in 15.2s (Redpanda v25.3.15, PG 16.14, MinIO), flink 1.20.5 image + jars built, iceberg-rest-fixture 1.10.1; host ports 19092/18081/5433/19000/18080
 - Notes for next session: Windows host; make available in Git Bash; Docker 29.6.2 with 16.4 GB
