@@ -30,6 +30,12 @@ services:
       - --smp=1
       - --memory=1G
       - --overprovisioned
+      # dev-container mode enables topic auto-creation, which races the reset
+      # tooling: a live consumer recreates a just-deleted topic with default
+      # partitions before the correct create lands. All topics here are
+      # created explicitly (common/kafka.py), so auto-create is pure hazard.
+      - --set
+      - redpanda.auto_create_topics_enabled=false
       # internal listener for containers, external listener for host clients
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092

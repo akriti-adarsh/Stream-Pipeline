@@ -171,7 +171,7 @@ class Sessionizer:
 
     def _log_poison(self, msg: Any, error: Exception) -> None:
         self._log.warning(
-            "poison message skipped (DLQ producer attaches at the DLQ milestone)",
+            "poison message diverted to DLQ (envelope rides in the batch transaction)",
             extra=with_ctx(
                 topic=msg.topic(), partition=msg.partition(), offset=msg.offset(), error=str(error)
             ),
@@ -363,10 +363,13 @@ class Sessionizer:
                     key=envelope.key,
                     value=envelope_bytes(envelope),
                 )
+            # Explicit timeouts: a coordinator hiccup must surface as an
+            # exception (abort, rollback, restart) rather than an unbounded
+            # silent stall inside librdkafka.
             self._producer.send_offsets_to_transaction(
-                offsets, self._consumer.consumer_group_metadata()
+                offsets, self._consumer.consumer_group_metadata(), 60.0
             )
-            self._producer.commit_transaction()
+            self._producer.commit_transaction(120.0)
             self.sessions_emitted += len(sessions)
             TRANSACTIONS_COMMITTED.labels(service=SERVICE).inc()
             SESSIONS_EMITTED.labels(service=SERVICE).inc(len(sessions))

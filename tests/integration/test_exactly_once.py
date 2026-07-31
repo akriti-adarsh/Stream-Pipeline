@@ -16,6 +16,14 @@ Protocol per run (spec section 10 + review round 3):
 The parametrised kill points cover: the sink mid-write, the sessionizer inside
 its transaction window, and both at once. A fourth variant (duplicates ON)
 proves the idempotent upsert dedupes under crash, not just under clean replay.
+
+Run against the CORE profile only (CI does): each test deletes and recreates
+the topics, and live Flink jobs consuming them turn into crash-looping
+reconnect storms that starve the single-core dev broker; the resulting
+metadata timeouts fail the harness (never the exactly-once assertions, but a
+red run is a red run). The compose file disables broker topic auto-creation
+for the same reason: a live consumer must not resurrect a deleted topic with
+default partitions underneath the reset.
 """
 
 from __future__ import annotations
@@ -98,14 +106,16 @@ def _run_generator(state_dir: Path, *, with_duplicates: bool) -> set[str]:
     return acked
 
 
-def _spawn(module: str, env_extra: dict[str, str]) -> subprocess.Popen[bytes]:
+def _spawn(module: str, env_extra: dict[str, str], log_dir: Path) -> subprocess.Popen[bytes]:
     env = {**os.environ, **env_extra}
+    log_path = log_dir / f"{module.rsplit('.', 1)[-1]}-{int(time.time() * 1000)}.log"
+    log_file = log_path.open("ab")
     return subprocess.Popen(
         [sys.executable, "-m", module],
         cwd=REPO,
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
     )
 
 
@@ -118,8 +128,14 @@ def _pg_snapshot() -> tuple[int, int, int]:
         return int(total), int(distinct), int(sessions)
 
 
-def _wait_for_stability(expected_events: int, timeout_sec: float = 240.0) -> tuple[int, int, int]:
-    """Wait until the event count reaches expected AND stays still, or time out."""
+def _wait_for_stability(
+    expected_events: int, expected_sessions: int, timeout_sec: float = 300.0
+) -> tuple[int, int, int]:
+    """Wait until events AND sessions reach their expected counts and hold
+    still, or time out. Waiting on both matters: a consumer mid-recovery can
+    go quiet for tens of seconds, and returning on the first lull would fail
+    the run with a premature snapshot rather than a real invariant breach.
+    On timeout the last snapshot returns and the assertions tell the truth."""
     deadline = time.monotonic() + timeout_sec
     last = (-1, -1, -1)
     stable_since = time.monotonic()
@@ -128,7 +144,11 @@ def _wait_for_stability(expected_events: int, timeout_sec: float = 240.0) -> tup
         if snap != last:
             last = snap
             stable_since = time.monotonic()
-        elif snap[0] >= expected_events and time.monotonic() - stable_since > 12.0:
+        elif (
+            snap[0] >= expected_events
+            and snap[2] >= expected_sessions
+            and time.monotonic() - stable_since > 12.0
+        ):
             return snap
         time.sleep(2.0)
     return last
@@ -166,9 +186,10 @@ def test_exactly_once_survives_sigkill(
         "POSTGRES_DSN": DSN,
         "STATE_PATH": str(state_dir / "sessionizer.db"),
     }
+    log_dir = state_dir
     procs: dict[str, subprocess.Popen[bytes]] = {
-        "sessionizer": _spawn("processors.ride_sessionizer", env),
-        "pg-sink": _spawn("processors.pg_sink", env),
+        "sessionizer": _spawn("processors.ride_sessionizer", env, log_dir),
+        "pg-sink": _spawn("processors.pg_sink", env, log_dir),
     }
     try:
         time.sleep(kill_after_sec)
@@ -182,19 +203,31 @@ def test_exactly_once_survives_sigkill(
             procs[name] = _spawn(
                 "processors.ride_sessionizer" if name == "sessionizer" else "processors.pg_sink",
                 env,
+                log_dir,
             )
-
-        total, distinct, sessions = _wait_for_stability(expected_events=len(acked))
-
-        assert total == distinct, f"duplicate rows in Postgres: {total} rows, {distinct} distinct"
-        assert total == len(acked), f"count mismatch: pg={total} acked={len(acked)}"
-        assert _pg_event_ids() == acked, "Postgres holds a different event set than was acked"
 
         terminal_rides = {
             event_id.rsplit(".", 1)[0]
             for event_id in acked
             if event_id.rsplit(".", 1)[1] in RIDE_TERMINAL_SEQS
         }
+        total, distinct, sessions = _wait_for_stability(
+            expected_events=len(acked), expected_sessions=len(terminal_rides)
+        )
+
+        for name, proc in procs.items():
+            if proc.poll() is not None:
+                logs = "\n".join(
+                    f.read_text(errors="replace")[-2000:] for f in sorted(log_dir.glob("*.log"))
+                )
+                raise AssertionError(
+                    f"{name} exited unexpectedly with rc={proc.returncode}; logs:\n{logs}"
+                )
+
+        assert total == distinct, f"duplicate rows in Postgres: {total} rows, {distinct} distinct"
+        assert total == len(acked), f"count mismatch: pg={total} acked={len(acked)}"
+        assert _pg_event_ids() == acked, "Postgres holds a different event set than was acked"
+
         with psycopg.connect(DSN) as conn, conn.cursor() as cur:
             cur.execute("SELECT count(*), count(DISTINCT ride_id) FROM raw.ride_sessions")
             session_rows, session_rides = cur.fetchone()

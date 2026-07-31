@@ -28,10 +28,9 @@ class FakeProducer:
         topic: str,
         key: bytes,
         value: bytes,
-        timestamp: int,
         on_delivery: Any,
     ) -> None:
-        self.messages.append({"topic": topic, "key": key, "value": value, "ts": timestamp})
+        self.messages.append({"topic": topic, "key": key, "value": value})
         if topic in self._fail_topics:
             on_delivery("simulated broker error", None)
         else:

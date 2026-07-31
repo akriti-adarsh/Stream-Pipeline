@@ -29,14 +29,18 @@ docker compose --profile full up -d --wait --build
 UP_AT=$SECONDS
 
 say "waiting for first data at the broker (constraint: producing within 60s of up)"
+# High-watermark based: message VALUES are Avro whose first byte is 0x00, and
+# bash command substitution silently drops null bytes, so never probe bytes.
 deadline=$((UP_AT + 90))
+hwm=0
 while [ "$SECONDS" -lt "$deadline" ]; do
-    events=$(docker compose exec -T redpanda rpk topic consume rides.events -n 1 -o start -f '%v' 2>/dev/null | head -c 1 || true)
-    [ -n "$events" ] && break
+    hwm=$(docker compose exec -T redpanda rpk topic describe rides.events -p 2>/dev/null \
+        | awk 'NR>1 {sum += $NF} END {print sum+0}')
+    [ "${hwm:-0}" -gt 0 ] && break
     sleep 3
 done
-[ -n "${events:-}" ] || fail "no rides.events within $((deadline - UP_AT))s of up"
-echo "   ok: first event on the broker at t=$((SECONDS - UP_AT))s after up"
+[ "${hwm:-0}" -gt 0 ] || fail "no rides.events within $((deadline - UP_AT))s of up"
+echo "   ok: rides.events high watermark $hwm at t=$((SECONDS - UP_AT))s after up"
 
 say "letting the compressed day run"
 sleep 75
@@ -44,7 +48,7 @@ sleep 75
 say "layer 1: broker topics"
 for topic in rides.events rides.events.clean rides.sessions payments.transactions drivers.locations; do
     hwm=$(docker compose exec -T redpanda rpk topic describe "$topic" -p 2>/dev/null \
-        | awk 'NR>1 {sum += $4} END {print sum+0}')
+        | awk 'NR>1 {sum += $NF} END {print sum+0}')
     assert_ge "${hwm:-0}" 1 "topic $topic high watermark"
 done
 

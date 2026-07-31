@@ -27,8 +27,7 @@ RAW_TABLES = (
 )
 
 
-def reset_topics(bootstrap: str) -> None:
-    admin = AdminClient({"bootstrap.servers": bootstrap})
+def _delete_and_recreate(admin: AdminClient, bootstrap: str) -> None:
     existing = set(admin.list_topics(timeout=10).topics)
     doomed = [t for t in TOPIC_PARTITIONS if t in existing]
     if doomed:
@@ -42,6 +41,29 @@ def reset_topics(bootstrap: str) -> None:
             break
         time.sleep(0.5)
     ensure_topics(bootstrap)
+
+
+def reset_topics(bootstrap: str, attempts: int = 3) -> None:
+    """Delete and recreate every platform topic with the right partition counts.
+
+    Retried: if broker-side auto-creation is enabled (it should not be; the
+    compose file disables it), a live consumer can recreate a just-deleted
+    topic with default partitions before our create lands. Each attempt
+    deletes any wrongly-shaped topic and recreates it.
+    """
+    admin = AdminClient({"bootstrap.servers": bootstrap})
+    last_error: Exception | None = None
+    for _ in range(attempts):
+        _delete_and_recreate(admin, bootstrap)
+        try:
+            _wait_for_leaders(admin)
+            return
+        except RuntimeError as exc:
+            last_error = exc
+    raise RuntimeError(f"topic reset failed after {attempts} attempts") from last_error
+
+
+def _wait_for_leaders(admin: AdminClient) -> None:
     # Recreation is async too: a produce burst against leaderless partitions
     # fails deliveries and silently shrinks the acked set. Wait for leaders.
     deadline = time.monotonic() + 30

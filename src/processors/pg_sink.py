@@ -382,7 +382,7 @@ class PgSink:
 
     def _log_poison(self, msg: Any, error: Exception) -> None:
         self._log.warning(
-            "poison message skipped (DLQ producer attaches at the DLQ milestone)",
+            "poison message could not be parsed (metrics-only observer)",
             extra=with_ctx(
                 topic=msg.topic(), partition=msg.partition(), offset=msg.offset(), error=str(error)
             ),

@@ -109,11 +109,16 @@ class KafkaTransport:
             payload = corrupt_payload(payload)
             self.corrupted += 1
         stable_id = self._stable_id(event)
+        # Deliberately NO record timestamp: event time is simulation time,
+        # which outruns the wall clock at up to 60x, and brokers reject
+        # timestamps too far in the future (INVALID_TIMESTAMP). Event time
+        # travels in the payload (event_ts / ts fields), which is what every
+        # consumer and every watermark actually reads; the record timestamp
+        # stays honest broker ingestion time.
         self._producer.produce(
             topic=event.topic,
             key=event.key.encode("utf-8"),
             value=payload,
-            timestamp=event.ts_ms,
             on_delivery=self._on_delivery(event.topic, stable_id, event.corrupt),
         )
         self._producer.poll(0)

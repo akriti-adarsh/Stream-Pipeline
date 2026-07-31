@@ -107,10 +107,12 @@ class FakeTransactionalProducer:
     def produce(self, topic: str, key: bytes, value: bytes, **kwargs: Any) -> None:
         self.log.append(("produce", (topic, key, value)))
 
-    def send_offsets_to_transaction(self, offsets: list[TopicPartition], metadata: Any) -> None:
+    def send_offsets_to_transaction(
+        self, offsets: list[TopicPartition], metadata: Any, timeout: float | None = None
+    ) -> None:
         self.log.append(("send_offsets", [(o.topic, o.partition, o.offset) for o in offsets]))
 
-    def commit_transaction(self) -> None:
+    def commit_transaction(self, timeout: float | None = None) -> None:
         if self._fail_commits > 0:
             self._fail_commits -= 1
             self.log.append(("commit_failed", None))
