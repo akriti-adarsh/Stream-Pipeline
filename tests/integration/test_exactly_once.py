@@ -1,0 +1,207 @@
+"""THE test: SIGKILL the processors mid-batch and prove exactly-once anyway.
+
+Protocol per run (spec section 10 + review round 3):
+
+1. Reset the platform to zero (topics, groups, Postgres, state).
+2. Produce a known stream with imperfections OFF, recording every event id the
+   broker ACKED to a manifest. The acked set is the only honest definition of
+   "what was produced".
+3. Start the sessionizer and the Postgres sink as real subprocesses.
+4. At a run-specific point, hard-kill a processor (TerminateProcess on
+   Windows, the SIGKILL equivalent: no cleanup, no atexit, no flush).
+5. Restart it and wait until Postgres stops changing.
+6. Assert raw.rides_events holds EXACTLY the acked event-id set: no loss, no
+   duplicates. Assert every terminal ride has exactly one session row.
+
+The parametrised kill points cover: the sink mid-write, the sessionizer inside
+its transaction window, and both at once. A fourth variant (duplicates ON)
+proves the idempotent upsert dedupes under crash, not just under clean replay.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import random
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import psycopg
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from reset_platform import reset_all
+
+pytestmark = [pytest.mark.integration, pytest.mark.timeout(600)]
+
+BOOTSTRAP = "localhost:19092"
+DSN = "postgresql://stream:stream@localhost:5433/stream"
+ANCHOR_0830_UTC = 1_767_255_000_000  # 2026-01-01T08:10:00Z, near the morning peak
+REPO = Path(__file__).resolve().parents[2]
+
+RIDE_TERMINAL_SEQS = {"5", "6"}  # completed, cancelled
+
+
+def _run_generator(state_dir: Path, *, with_duplicates: bool) -> set[str]:
+    """Produce the known stream, return the broker-acked rides.events ids."""
+    manifest = state_dir / "acked.jsonl"
+    cmd = [
+        sys.executable,
+        "-m",
+        "generator",
+        "--sink",
+        "kafka",
+        "--no-pace",
+        "--speed",
+        "60",
+        "--duration",
+        "45",
+        "--seed",
+        "1337",
+        "--anchor",
+        str(ANCHOR_0830_UTC),
+        "--rides-per-min",
+        "40",
+        "--drivers",
+        "40",
+        "--acked-manifest",
+        str(manifest),
+    ]
+    if with_duplicates:
+        # Duplicates ON (same event_id re-sent), everything else off: proves
+        # the idempotent upsert under crash, per review round 3.
+        cmd += [
+            "--dup-rate",
+            "0.02",
+            "--ooo-rate",
+            "0",
+            "--late-rate",
+            "0",
+            "--malformed-rate",
+            "0",
+            "--null-rate",
+            "0",
+            "--abandon-rate",
+            "0",
+        ]
+    else:
+        cmd.append("--perfect")
+    subprocess.run(cmd, cwd=REPO, check=True, capture_output=True, timeout=240)
+    acked: set[str] = set()
+    with manifest.open(encoding="utf-8") as fh:
+        for line in fh:
+            record = json.loads(line)
+            if record["topic"] == "rides.events":
+                acked.add(record["id"])
+    return acked
+
+
+def _spawn(module: str, env_extra: dict[str, str]) -> subprocess.Popen[bytes]:
+    env = {**os.environ, **env_extra}
+    return subprocess.Popen(
+        [sys.executable, "-m", module],
+        cwd=REPO,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _pg_snapshot() -> tuple[int, int, int]:
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*), count(DISTINCT event_id) FROM raw.rides_events")
+        total, distinct = cur.fetchone()
+        cur.execute("SELECT count(*) FROM raw.ride_sessions")
+        sessions = cur.fetchone()[0]
+        return int(total), int(distinct), int(sessions)
+
+
+def _wait_for_stability(expected_events: int, timeout_sec: float = 240.0) -> tuple[int, int, int]:
+    """Wait until the event count reaches expected AND stays still, or time out."""
+    deadline = time.monotonic() + timeout_sec
+    last = (-1, -1, -1)
+    stable_since = time.monotonic()
+    while time.monotonic() < deadline:
+        snap = _pg_snapshot()
+        if snap != last:
+            last = snap
+            stable_since = time.monotonic()
+        elif snap[0] >= expected_events and time.monotonic() - stable_since > 12.0:
+            return snap
+        time.sleep(2.0)
+    return last
+
+
+def _pg_event_ids() -> set[str]:
+    with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+        cur.execute("SELECT event_id FROM raw.rides_events")
+        return {row[0] for row in cur.fetchall()}
+
+
+@pytest.mark.parametrize(
+    ("kill_target", "kill_after_sec", "with_duplicates"),
+    [
+        ("pg-sink", 3.0, False),
+        ("sessionizer", 5.0, False),
+        ("both", 7.0, False),
+        ("pg-sink", 4.0, True),
+    ],
+    ids=["kill-sink-early", "kill-sessionizer-mid", "kill-both-late", "kill-sink-with-dupes"],
+)
+def test_exactly_once_survives_sigkill(
+    tmp_path: Path, kill_target: str, kill_after_sec: float, with_duplicates: bool
+) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    reset_all(BOOTSTRAP, DSN, str(state_dir))
+
+    acked = _run_generator(state_dir, with_duplicates=with_duplicates)
+    assert len(acked) > 5_000, f"only {len(acked)} events acked; stream too small to prove much"
+
+    env = {
+        "KAFKA_BOOTSTRAP": BOOTSTRAP,
+        "SCHEMA_REGISTRY_URL": "http://localhost:18081",
+        "POSTGRES_DSN": DSN,
+        "STATE_PATH": str(state_dir / "sessionizer.db"),
+    }
+    procs: dict[str, subprocess.Popen[bytes]] = {
+        "sessionizer": _spawn("processors.ride_sessionizer", env),
+        "pg-sink": _spawn("processors.pg_sink", env),
+    }
+    try:
+        time.sleep(kill_after_sec)
+        victims = ["sessionizer", "pg-sink"] if kill_target == "both" else [kill_target]
+        for name in victims:
+            procs[name].kill()  # TerminateProcess: the Windows SIGKILL, no cleanup runs
+            procs[name].wait(timeout=30)
+        jitter = random.uniform(0.5, 2.0)
+        time.sleep(jitter)
+        for name in victims:
+            procs[name] = _spawn(
+                "processors.ride_sessionizer" if name == "sessionizer" else "processors.pg_sink",
+                env,
+            )
+
+        total, distinct, sessions = _wait_for_stability(expected_events=len(acked))
+
+        assert total == distinct, f"duplicate rows in Postgres: {total} rows, {distinct} distinct"
+        assert total == len(acked), f"count mismatch: pg={total} acked={len(acked)}"
+        assert _pg_event_ids() == acked, "Postgres holds a different event set than was acked"
+
+        terminal_rides = {
+            event_id.rsplit(".", 1)[0]
+            for event_id in acked
+            if event_id.rsplit(".", 1)[1] in RIDE_TERMINAL_SEQS
+        }
+        with psycopg.connect(DSN) as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*), count(DISTINCT ride_id) FROM raw.ride_sessions")
+            session_rows, session_rides = cur.fetchone()
+        assert session_rows == session_rides, "duplicate session rows"
+        assert sessions == len(terminal_rides), (
+            f"sessions {sessions} != terminal rides {len(terminal_rides)}"
+        )
+    finally:
+        for proc in procs.values():
+            proc.kill()
