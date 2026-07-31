@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "RideEvent",
+  "namespace": "streampipeline.rides",
+  "doc": "Version 2 of the ride lifecycle event: adds the optional promo_code field. Backward compatible with v1 (new field is nullable with a null default), which is exactly what lets v1 readers keep consuming v2 data and v2 readers consume v1 data without redeployment.",
+  "fields": [
+    {"name": "event_id", "type": "string", "doc": "Globally unique id of this event; duplicates injected by the generator reuse it, which is what downstream dedup keys on."},
+    {"name": "ride_id", "type": "string", "doc": "Ride this event belongs to; Kafka partition key."},
+    {"name": "event_type", "type": "string"},
+    {"name": "event_ts", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Event time in UTC epoch millis, assigned by the simulator clock, not by arrival."},
+    {"name": "rider_id", "type": "string"},
+    {"name": "driver_id", "type": ["null", "string"], "default": null, "doc": "Null until the ride is matched."},
+    {"name": "city_id", "type": "int"},
+    {"name": "pickup_lat", "type": "double"},
+    {"name": "pickup_lon", "type": "double"},
+    {"name": "dropoff_lat", "type": ["null", "double"], "default": null},
+    {"name": "dropoff_lon", "type": ["null", "double"], "default": null},
+    {"name": "fare_cents", "type": ["null", "long"], "default": null, "doc": "Set on completed events only."},
+    {"name": "surge_multiplier", "type": "double"},
+    {"name": "payload_version", "type": "int", "default": 2},
+    {"name": "promo_code", "type": ["null", "string"], "default": null, "doc": "New in v2. Null when no promotion applied."}
+  ]
+}

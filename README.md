@@ -68,7 +68,7 @@ flowchart LR
 | # | Milestone | Status |
 |---|---|---|
 | 1 | Scaffold, tooling, CI | done |
-| 2 | Avro and JSON schemas + registry setup | pending |
+| 2 | Avro and JSON schemas + registry setup | done |
 | 3 | Generator: coherent ride state machine | pending |
 | 4 | Generator: geospatial driver movement, diurnal load | pending |
 | 5 | Generator: configurable imperfections, schema evolution | pending |

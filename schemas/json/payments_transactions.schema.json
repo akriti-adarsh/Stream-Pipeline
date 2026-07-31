@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PaymentTransaction",
+  "description": "Payment for a completed ride. Deliberately arrives 5 to 90 seconds after ride completion, which is why every join against it must tolerate lateness. This topic intentionally uses JSON Schema rather than Avro so the platform demonstrates both registry-backed formats.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["txn_id", "ride_id", "amount_cents", "status", "method", "ts"],
+  "properties": {
+    "txn_id": {
+      "type": "string",
+      "description": "Globally unique transaction id."
+    },
+    "ride_id": {
+      "type": "string",
+      "description": "Ride being paid for; join key against rides.sessions."
+    },
+    "amount_cents": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Amount in cents; matches fare_cents on the completed ride for successful card and wallet payments."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "failed", "refunded"]
+    },
+    "method": {
+      "type": "string",
+      "enum": ["card", "cash", "wallet"]
+    },
+    "ts": {
+      "type": "integer",
+      "description": "Transaction time as UTC epoch milliseconds."
+    }
+  }
+}

@@ -18,7 +18,7 @@ The spec is docs/BUILD_SPEC.md. This file is rules and state; the spec defines t
    green commit and update State. Do not start work you cannot finish.
 
 ## State (update at every commit)
-- Plan position: 1 of 28. Last completed: "chore: scaffold, tooling, ci"
-- Suite at last commit: 4 passed in 3.63s · Coverage: 100.0%
-- Open deviations: 0 · Next up: commits 2–10
+- Plan position: 2 of 28. Last completed: "feat(schemas): avro and json schemas + registry setup"
+- Suite at last commit: 17 passed in 4.56s · Coverage: 97.1%
+- Open deviations: 0 · Next up: commits 3–10
 - Notes for next session: Windows host; make available in Git Bash; Docker 29.6.2 with 16.4 GB

@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "DriverLocation",
+  "namespace": "streampipeline.drivers",
+  "doc": "High-volume GPS ping from a driver. status values: idle, en_route_to_pickup, on_trip, offline.",
+  "fields": [
+    {"name": "driver_id", "type": "string", "doc": "Kafka partition key."},
+    {"name": "ts", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "lat", "type": "double"},
+    {"name": "lon", "type": "double"},
+    {"name": "speed_kmh", "type": "double"},
+    {"name": "heading", "type": "double", "doc": "Compass heading in degrees, 0 to 360."},
+    {"name": "status", "type": "string"},
+    {"name": "city_id", "type": "int"}
+  ]
+}

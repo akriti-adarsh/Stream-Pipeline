@@ -1,0 +1,32 @@
+{
+  "type": "record",
+  "name": "RideSession",
+  "namespace": "streampipeline.rides",
+  "doc": "One record per closed ride, emitted by the sessionizer when the ride reaches a terminal state (completed, cancelled) or is closed as abandoned by the event-time timeout. The pair (ride_id, event_seq) is the idempotency key used by the Postgres sink.",
+  "fields": [
+    {"name": "ride_id", "type": "string"},
+    {"name": "rider_id", "type": "string"},
+    {"name": "driver_id", "type": ["null", "string"], "default": null},
+    {"name": "city_id", "type": "int"},
+    {"name": "terminal_state", "type": "string", "doc": "completed, cancelled, or abandoned."},
+    {"name": "event_seq", "type": "int", "doc": "Number of distinct lifecycle events folded into this session."},
+    {"name": "requested_ts", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+    {"name": "matched_ts", "type": ["null", {"type": "long", "logicalType": "timestamp-millis"}], "default": null},
+    {"name": "driver_arrived_ts", "type": ["null", {"type": "long", "logicalType": "timestamp-millis"}], "default": null},
+    {"name": "started_ts", "type": ["null", {"type": "long", "logicalType": "timestamp-millis"}], "default": null},
+    {"name": "ended_ts", "type": ["null", {"type": "long", "logicalType": "timestamp-millis"}], "default": null},
+    {"name": "time_to_match_sec", "type": ["null", "double"], "default": null},
+    {"name": "time_to_pickup_sec", "type": ["null", "double"], "default": null},
+    {"name": "ride_duration_sec", "type": ["null", "double"], "default": null},
+    {"name": "haversine_distance_km", "type": ["null", "double"], "default": null},
+    {"name": "avg_speed_kmh", "type": ["null", "double"], "default": null},
+    {"name": "is_late_arrival", "type": "boolean", "default": false, "doc": "True when time_to_pickup_sec exceeded 600 seconds."},
+    {"name": "fare_cents", "type": ["null", "long"], "default": null},
+    {"name": "surge_multiplier", "type": "double"},
+    {"name": "promo_code", "type": ["null", "string"], "default": null, "doc": "Carried through from v2 ride events; null for v1 traffic."},
+    {"name": "pickup_lat", "type": "double"},
+    {"name": "pickup_lon", "type": "double"},
+    {"name": "dropoff_lat", "type": ["null", "double"], "default": null},
+    {"name": "dropoff_lon", "type": ["null", "double"], "default": null}
+  ]
+}

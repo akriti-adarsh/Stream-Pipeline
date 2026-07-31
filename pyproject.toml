@@ -85,6 +85,12 @@ module = [
 ]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# confluent_kafka ships no stubs, so its constructors type as Any; the factory
+# helpers in common.schemas would otherwise all trip no-any-return.
+module = ["common.schemas"]
+warn_return_any = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"

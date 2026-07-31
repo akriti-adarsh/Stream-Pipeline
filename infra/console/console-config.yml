@@ -1,0 +1,10 @@
+# Redpanda Console v3 configuration (schemaRegistry is top level in v3).
+kafka:
+  brokers: ["redpanda:9092"]
+schemaRegistry:
+  enabled: true
+  urls: ["http://redpanda:8081"]
+redpanda:
+  adminApi:
+    enabled: true
+    urls: ["http://redpanda:9644"]

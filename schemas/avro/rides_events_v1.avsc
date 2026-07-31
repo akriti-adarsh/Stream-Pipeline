@@ -1,0 +1,22 @@
+{
+  "type": "record",
+  "name": "RideEvent",
+  "namespace": "streampipeline.rides",
+  "doc": "One lifecycle event of a ride. event_type is a string rather than an Avro enum so that unknown future types degrade gracefully at consumers instead of failing deserialisation; legal values are requested, matched, driver_arrived, started, completed, cancelled.",
+  "fields": [
+    {"name": "event_id", "type": "string", "doc": "Globally unique id of this event; duplicates injected by the generator reuse it, which is what downstream dedup keys on."},
+    {"name": "ride_id", "type": "string", "doc": "Ride this event belongs to; Kafka partition key."},
+    {"name": "event_type", "type": "string"},
+    {"name": "event_ts", "type": {"type": "long", "logicalType": "timestamp-millis"}, "doc": "Event time in UTC epoch millis, assigned by the simulator clock, not by arrival."},
+    {"name": "rider_id", "type": "string"},
+    {"name": "driver_id", "type": ["null", "string"], "default": null, "doc": "Null until the ride is matched."},
+    {"name": "city_id", "type": "int"},
+    {"name": "pickup_lat", "type": "double"},
+    {"name": "pickup_lon", "type": "double"},
+    {"name": "dropoff_lat", "type": ["null", "double"], "default": null},
+    {"name": "dropoff_lon", "type": ["null", "double"], "default": null},
+    {"name": "fare_cents", "type": ["null", "long"], "default": null, "doc": "Set on completed events only."},
+    {"name": "surge_multiplier", "type": "double"},
+    {"name": "payload_version", "type": "int", "default": 1}
+  ]
+}

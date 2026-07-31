@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+Makefile text eol=lf
+*.sh text eol=lf
