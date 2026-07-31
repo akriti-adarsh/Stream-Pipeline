@@ -18,9 +18,10 @@ The spec is docs/BUILD_SPEC.md. This file is rules and state; the spec defines t
    green commit and update State. Do not start work you cannot finish.
 
 ## State (update at every commit)
-- Plan position: 10 of 28. Last completed: "feat(dlq): dead letter envelope and replay script"
-- Suite at last commit: 100 passed, 1 deselected in 51.66s · Coverage: 85.6%
-- Open deviations: 0 · Next up: commits 11–15 (session B)
+- Plan position: 10 of 28 committed; 11-26 BUILT and verified live, commits pending in order.
+- Suite at working tree: 129 passed, 10 deselected · Coverage: 83.4%
+- Open deviations: 4 · Kill test: all 4 SIGKILL variants passed live; Flink 3 pipelines RUNNING with late.events proven; Iceberg 18571 rows + evolution + compaction proven; dbt 121/121; GE gates live; DLQ replay cycle passed; ride ids now run-token-scoped (cross-run collision fix)
+- Waiting on: observability agent (metrics+prometheus+grafana), then commits 11-28, app containerization, screenshots, final README
 - Live smoke: compose core healthy; generator kafka sink 15s -> 9609 events (~640/s), 4 subjects, 9 topics; stack left RUNNING for processor work
 - Infra pre-verified by agents: compose core healthy in 15.2s (Redpanda v25.3.15, PG 16.14, MinIO), flink 1.20.5 image + jars built, iceberg-rest-fixture 1.10.1; host ports 19092/18081/5433/19000/18080
 - Notes for next session: Windows host; make available in Git Bash; Docker 29.6.2 with 16.4 GB

@@ -33,3 +33,4 @@ gx/uncommitted/
 # OS noise
 .DS_Store
 Thumbs.db
+dbt/.user.yml

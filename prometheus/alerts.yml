@@ -21,14 +21,16 @@ groups:
             pipeline-health Grafana dashboard.
 
       - alert: TargetDown
-        expr: up == 0
+        # Every job lists two homes (container service name and
+        # host.docker.internal); a service is down only when NEITHER answers.
+        expr: max by (job) (up) == 0
         for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "Scrape target {{ $labels.job }} ({{ $labels.instance }}) is down"
+          summary: "Service {{ $labels.job }} is down in every home"
           description: >-
-            Prometheus has not been able to scrape {{ $labels.job }} at
-            {{ $labels.instance }} for 2 minutes. Host processors only serve
-            metrics while running with METRICS_PORT set, so this either means
-            the process died or it was started without metrics enabled.
+            Prometheus could not scrape {{ $labels.job }} at any of its
+            targets for 2 minutes. Services only serve metrics while running
+            with METRICS_PORT set, so this either means the process died or
+            it was started without metrics enabled.
