@@ -22,6 +22,12 @@ class GeneratorConfig:
     base_rides_per_min: float = 40.0
     abandon_rate: float = 0.003
     cancel_probability: dict[str, float] | None = None
+    # Fleet: at the default speed of 60 the ping throughput is
+    # drivers_total * speed / ping_interval_sec = 300 * 60 / 30 = 600 msg/sec.
+    drivers_total: int = 300
+    ping_interval_sec: float = 30.0
+    offline_prob_per_ping: float = 0.004
+    diurnal: bool = True
 
     def cancel_prob(self, stage: str) -> float:
         """Cancellation probability entering a lifecycle stage (about 8 percent overall)."""

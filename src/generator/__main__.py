@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     anchor = cfg.anchor_ms if cfg.anchor_ms is not None else wall_anchor_ms()
     clock = SimClock(anchor, cfg.tick_ms)
-    sim = build_simulator(cfg)
+    sim = build_simulator(cfg, anchor)
     total_ticks = ticks_for(cfg)
     pause = 0.0 if args.no_pace else clock.real_seconds_per_tick(cfg.speed)
     emitted = 0

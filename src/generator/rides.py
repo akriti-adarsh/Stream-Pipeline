@@ -4,8 +4,8 @@ Every ride is driven through :class:`RideStateMachine`, so illegal transitions
 are structurally impossible. Timing draws come from documented distributions:
 
 - time to match: exponential, mean 30 s, clipped to [3 s, 240 s]
-- driver travel to pickup: lognormal around 4 minutes (replaced by true
-  travel time once the geospatial fleet lands)
+- driver travel to pickup: true distance from the assigned driver's position
+  over a clipped normal road speed, so pings and lifecycle events agree
 - arrival to start: uniform 10 s to 90 s
 - ride duration: haversine distance over a clipped normal speed
   (mean 26 km/h, sigma 7), plus 10 percent noise
@@ -19,13 +19,20 @@ timeout exists precisely to close those.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from random import Random
 
 from common.geo import haversine_km
-from generator.cities import CITIES, CITY_BY_ID, TOTAL_DEMAND_WEIGHT, City
+from generator import diurnal
+from generator.cities import (
+    CITIES,
+    CITY_BY_ID,
+    TOTAL_DEMAND_WEIGHT,
+    City,
+    sample_hotspot_point,
+)
 from generator.config import GeneratorConfig
+from generator.drivers import DriverFleet
 from generator.events import SourceEvent, payment_event, ride_event
 from generator.state_machine import RideEventType, RideStateMachine
 
@@ -55,9 +62,10 @@ class ActiveRide:
 
 
 class RideSimulator:
-    def __init__(self, cfg: GeneratorConfig, rng: Random) -> None:
+    def __init__(self, cfg: GeneratorConfig, rng: Random, fleet: DriverFleet) -> None:
         self._cfg = cfg
         self._rng = rng
+        self._fleet = fleet
         self._active: dict[str, ActiveRide] = {}
         self._payments: list[tuple[int, SourceEvent]] = []
         self._counter = 0
@@ -68,15 +76,15 @@ class RideSimulator:
     # ------------------------------------------------------------------ ticks
 
     def on_tick(self, now_ms: int) -> list[SourceEvent]:
-        out: list[SourceEvent] = []
+        out: list[SourceEvent] = list(self._fleet.on_tick(now_ms))
         out.extend(self._spawn(now_ms))
         out.extend(self._progress(now_ms))
         out.extend(self._due_payments(now_ms))
         return out
 
     def demand_factor(self, now_ms: int) -> float:
-        """Traffic multiplier at a sim instant. Flat until the diurnal milestone."""
-        return 1.0
+        """Traffic multiplier at a sim instant: the diurnal curve unless disabled."""
+        return diurnal.demand_factor(now_ms) if self._cfg.diurnal else 1.0
 
     def active_count(self) -> int:
         return len(self._active)
@@ -140,14 +148,13 @@ class RideSimulator:
         return CITIES[-1]
 
     def sample_point(self, city: City) -> tuple[float, float]:
-        """Placeholder sampling around the centre; the geo milestone swaps in
-        the hotspot mixture model."""
-        lat = self._rng.gauss(city.center_lat, 0.03)
-        lon = self._rng.gauss(city.center_lon, 0.03)
-        return city.clamp(lat, lon)
+        return sample_hotspot_point(city, self._rng)
 
     def surge_for(self, city: City, now_ms: int) -> float:
-        return round(max(1.0, self._rng.gauss(1.05, 0.18)), 2)
+        """Surge follows demand, damped, with noise: about 1.0 off-peak, 1.2 to 1.6 at rush."""
+        demand = self.demand_factor(now_ms)
+        surge = 0.55 + 0.45 * demand + self._rng.gauss(0.0, 0.10)
+        return round(min(max(surge, 1.0), 3.0), 2)
 
     # --------------------------------------------------------------- progress
 
@@ -187,11 +194,11 @@ class RideSimulator:
         ride.next_event = None
 
         if event_type is RideEventType.MATCHED:
-            ride.driver_id = f"d-{ride.city_id}-{self._rng.randrange(400):04d}"
-            if ride.stop_after is not RideEventType.MATCHED:
-                self._after_matched(ride, at_ms)
+            self._after_matched(ride, at_ms)
         elif event_type is RideEventType.DRIVER_ARRIVED:
-            if ride.stop_after is not RideEventType.DRIVER_ARRIVED:
+            if ride.stop_after is RideEventType.DRIVER_ARRIVED:
+                self._release_driver(ride, at_ms)
+            else:
                 self._after_arrived(ride, at_ms)
         elif event_type is RideEventType.STARTED:
             ride.started_ms = at_ms
@@ -200,8 +207,10 @@ class RideSimulator:
             ride.fare_cents = self._fare(ride)
             self.completed_rides += 1
             self._queue_payment(ride, at_ms)
+            self._release_driver(ride, at_ms, at=ride.dropoff)
         elif event_type is RideEventType.CANCELLED:
             self.cancelled_rides += 1
+            self._release_driver(ride, at_ms)
 
         include_dropoff = event_type in (
             RideEventType.REQUESTED,
@@ -222,11 +231,21 @@ class RideSimulator:
         )
 
     def _after_matched(self, ride: ActiveRide, at_ms: int) -> None:
+        driver_id, travel_sec = self._fleet.assign(ride.city_id, ride.pickup, at_ms)
+        ride.driver_id = driver_id
+        if ride.stop_after is RideEventType.MATCHED:
+            self._release_driver(ride, at_ms)
+            return
         if self._rng.random() < self._cfg.cancel_prob("matched"):
             self._plan(ride, RideEventType.CANCELLED, at_ms + int(self._exp(60.0) * 1000))
             return
-        travel_sec = min(max(self._rng.lognormvariate(math.log(220.0), 0.45), 45.0), 900.0)
         self._plan(ride, RideEventType.DRIVER_ARRIVED, at_ms + int(travel_sec * 1000))
+
+    def _release_driver(
+        self, ride: ActiveRide, at_ms: int, at: tuple[float, float] | None = None
+    ) -> None:
+        if ride.driver_id is not None:
+            self._fleet.release(ride.driver_id, at_ms, at=at)
 
     def _after_arrived(self, ride: ActiveRide, at_ms: int) -> None:
         if self._rng.random() < self._cfg.cancel_prob("driver_arrived"):
@@ -239,6 +258,8 @@ class RideSimulator:
         duration = ride.distance_km / speed_kmh * 3600.0
         duration *= 1.0 + self._rng.gauss(0.0, 0.10)
         ride.duration_sec = max(duration, 60.0)
+        if ride.driver_id is not None:
+            self._fleet.ride_started(ride.driver_id, ride.dropoff, ride.duration_sec, at_ms)
         if self._rng.random() < self._cfg.cancel_prob("started"):
             cancel_at = at_ms + int(ride.duration_sec * self._rng.uniform(0.1, 0.8) * 1000)
             self._plan(ride, RideEventType.CANCELLED, cancel_at)

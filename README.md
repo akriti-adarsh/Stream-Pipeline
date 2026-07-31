@@ -70,7 +70,7 @@ flowchart LR
 | 1 | Scaffold, tooling, CI | done |
 | 2 | Avro and JSON schemas + registry setup | done |
 | 3 | Generator: coherent ride state machine | done |
-| 4 | Generator: geospatial driver movement, diurnal load | pending |
+| 4 | Generator: geospatial driver movement, diurnal load | done |
 | 5 | Generator: configurable imperfections, schema evolution | pending |
 | 6 | Infra: Redpanda, Console, Postgres, MinIO in compose | pending |
 | 7 | Sessionizer with local state store | pending |

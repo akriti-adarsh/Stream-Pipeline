@@ -8,6 +8,7 @@ the geospatial sampling and driver walks added with the geo milestone.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from random import Random
 
 
 @dataclass(frozen=True)
@@ -126,3 +127,19 @@ CITIES: tuple[City, ...] = (
 
 CITY_BY_ID: dict[int, City] = {c.city_id: c for c in CITIES}
 TOTAL_DEMAND_WEIGHT = sum(c.demand_weight for c in CITIES)
+
+KM_PER_DEG_LAT = 111.32
+
+
+def sample_hotspot_point(city: City, rng: Random) -> tuple[float, float]:
+    """Sample a point from the city's mixture of Gaussian hotspots, clamped to its box."""
+    roll = rng.random() * sum(h.weight for h in city.hotspots)
+    acc = 0.0
+    spot = city.hotspots[-1]
+    for candidate in city.hotspots:
+        acc += candidate.weight
+        if roll <= acc:
+            spot = candidate
+            break
+    sigma_deg = spot.sigma_km / KM_PER_DEG_LAT
+    return city.clamp(rng.gauss(spot.lat, sigma_deg), rng.gauss(spot.lon, sigma_deg))

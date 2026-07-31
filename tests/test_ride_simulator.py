@@ -56,7 +56,7 @@ def test_no_seed_produces_an_illegal_ride(seed: int) -> None:
 
 
 def test_cancellation_rate_is_realistic() -> None:
-    events = _events(GeneratorConfig(seed=7, anchor_ms=ANCHOR_MS, base_rides_per_min=20.0), 3600)
+    events = _events(GeneratorConfig(seed=7, anchor_ms=ANCHOR_MS, base_rides_per_min=32.0), 3600)
     rides = _rides(events)
     terminal = {
         rid: RideEventType(evs[-1]["event_type"])
