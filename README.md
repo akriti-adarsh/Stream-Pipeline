@@ -72,7 +72,7 @@ flowchart LR
 | 3 | Generator: coherent ride state machine | done |
 | 4 | Generator: geospatial driver movement, diurnal load | done |
 | 5 | Generator: configurable imperfections, schema evolution | done |
-| 6 | Infra: Redpanda, Console, Postgres, MinIO in compose | pending |
+| 6 | Infra: Redpanda, Console, Postgres, MinIO in compose | done |
 | 7 | Sessionizer with local state store | pending |
 | 8 | Kafka transactions for exactly-once | pending |
 | 9 | Idempotent Postgres sink with offset table | pending |
@@ -113,8 +113,29 @@ make unit          # unit tests with the 80 percent coverage floor
 make test          # lint + unit
 ```
 
-The compose stack, seed target, and e2e harness arrive with their milestones and will be
-documented here the moment they exist.
+### Quickstart (core profile)
+
+```bash
+docker compose --profile core up -d --wait   # Redpanda, Console, Postgres, MinIO; healthy in ~15 s
+uv run python -m generator --sink kafka --speed 60 --duration 600 --seed 42
+```
+
+The generator self-initialises: it creates every topic (correct partition counts, DLQs
+included) and registers all four Schema Registry subjects before the first message. A 15 second
+smoke run on this machine produced 9,609 events (about 640 msg/sec), the bulk of it the
+high-volume driver GPS stream.
+
+Host ports (shifted where defaults were taken; from inside the network use service names):
+
+| Service | Host | In network |
+|---|---|---|
+| Kafka API | localhost:19092 | redpanda:9092 |
+| Schema Registry | localhost:18081 | redpanda:8081 |
+| Redpanda Console | localhost:18080 | console:8080 |
+| Postgres | localhost:5433 | postgres:5432 |
+| MinIO S3 / console | localhost:19000 / 19001 | minio:9000 |
+
+The e2e harness and the remaining services join the compose profiles with their milestones.
 
 ## Standing rules
 

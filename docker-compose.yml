@@ -60,6 +60,11 @@ services:
     depends_on:
       redpanda:
         condition: service_healthy
+      # also gates on the one-shot bucket-init: compose "up --wait" only
+      # accepts a one-shot exiting 0 when some service depends on it with
+      # service_completed_successfully, otherwise --wait returns exit 1
+      bucket-init:
+        condition: service_completed_successfully
     environment:
       CONFIG_FILEPATH: /etc/console/config.yml
     volumes:

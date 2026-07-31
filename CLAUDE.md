@@ -18,8 +18,9 @@ The spec is docs/BUILD_SPEC.md. This file is rules and state; the spec defines t
    green commit and update State. Do not start work you cannot finish.
 
 ## State (update at every commit)
-- Plan position: 5 of 28. Last completed: "feat(generator): configurable imperfections and schema evolution"
+- Plan position: 6 of 28. Last completed: "infra: redpanda, console, postgres, minio in compose"
 - Suite at last commit: 60 passed in 37.07s · Coverage: 94.0%
-- Open deviations: 0 · Next up: commits 6–10
+- Open deviations: 0 · Next up: commits 7–10
+- Live smoke: compose core healthy; generator kafka sink 15s -> 9609 events (~640/s), 4 subjects, 9 topics; stack left RUNNING for processor work
 - Infra pre-verified by agents: compose core healthy in 15.2s (Redpanda v25.3.15, PG 16.14, MinIO), flink 1.20.5 image + jars built, iceberg-rest-fixture 1.10.1; host ports 19092/18081/5433/19000/18080
 - Notes for next session: Windows host; make available in Git Bash; Docker 29.6.2 with 16.4 GB
