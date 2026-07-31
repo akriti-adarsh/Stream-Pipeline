@@ -1,0 +1,340 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*)::bigint AS rides FROM analytics_marts.fct_rides",
+          "refId": "A"
+        }
+      ],
+      "title": "Rides (all time)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "green", "value": 0.7 }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 5, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FILTER (WHERE terminal_state = 'completed')::float / NULLIF(count(*), 0) AS completion_rate FROM analytics_marts.fct_rides",
+          "refId": "A"
+        }
+      ],
+      "title": "Completion rate (all time)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 10, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT avg(surge_multiplier) AS avg_surge FROM analytics_marts.fct_rides",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg surge multiplier",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.3 },
+              { "color": "green", "value": 0.5 }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 15, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT avg(on_trip_share) AS driver_utilisation FROM analytics_marts.fct_driver_shifts",
+          "refId": "A"
+        }
+      ],
+      "title": "Driver utilisation (on-trip share)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 19, "y": 0 },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*)::bigint AS shifts FROM analytics_marts.fct_driver_shifts",
+          "refId": "A"
+        }
+      ],
+      "title": "Driver shifts (all time)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1, "showPoints": "never", "stacking": { "group": "A", "mode": "normal" } },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroup(requested_at, '15m') AS time, city_name AS metric, count(*)::float AS value FROM analytics_marts.fct_rides WHERE $__timeFilter(requested_at) GROUP BY 1, 2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Rides by city (15m buckets, sim time)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "auto" },
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroup(requested_at, '15m') AS time, city_name AS metric, (count(*) FILTER (WHERE terminal_state = 'completed'))::float / NULLIF(count(*), 0) AS value FROM analytics_marts.fct_rides WHERE $__timeFilter(requested_at) GROUP BY 1, 2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Completion rate by city (15m buckets, sim time)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "completion_rate" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "custom.cellOptions", "value": { "mode": "gradient", "type": "gauge" } },
+              { "id": "max", "value": 1 },
+              { "id": "min", "value": 0 },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "yellow", "value": 0.5 },
+                    { "color": "green", "value": 0.7 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "id": 8,
+      "options": { "cellHeight": "sm", "footer": { "show": false }, "showHeader": true },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT city_name, sum(rides_closed)::bigint AS rides_closed, sum(rides_completed)::bigint AS rides_completed, sum(rides_cancelled)::bigint AS rides_cancelled, sum(rides_abandoned)::bigint AS rides_abandoned, sum(rides_completed)::float / NULLIF(sum(rides_closed), 0) AS completion_rate, avg(avg_surge) AS avg_surge, sum(late_arrivals)::bigint AS late_arrivals FROM analytics_marts.agg_city_hourly GROUP BY city_name ORDER BY rides_closed DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "City scorecard (agg_city_hourly, all hours)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "on_trip_share" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "custom.cellOptions", "value": { "mode": "gradient", "type": "gauge" } },
+              { "id": "max", "value": 1 },
+              { "id": "min", "value": 0 },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "yellow", "value": 0.3 },
+                    { "color": "green", "value": 0.5 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "id": 9,
+      "options": { "cellHeight": "sm", "footer": { "show": false }, "showHeader": true },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT coalesce(c.city_name, s.city_id::text) AS city, count(*)::bigint AS shifts, avg(s.on_trip_share) AS on_trip_share, avg(s.active_minutes) AS avg_active_minutes, avg(s.distance_km) AS avg_distance_km, avg(s.avg_speed_kmh) AS avg_speed_kmh FROM analytics_marts.fct_driver_shifts s LEFT JOIN analytics_marts.dim_cities c ON c.city_id = s.city_id GROUP BY 1 ORDER BY shifts DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Driver utilisation by city (fct_driver_shifts)",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["stream-pipeline", "business"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1y", "to": "now+6h" },
+  "timezone": "browser",
+  "title": "Business Metrics",
+  "uid": "business-metrics",
+  "version": 1
+}

@@ -1,0 +1,16 @@
+# Grafana dashboard provider: loads every JSON dashboard mounted at
+# /var/lib/grafana/dashboards (see the grafana service in docker-compose.yml).
+
+apiVersion: 1
+
+providers:
+  - name: stream-pipeline
+    orgId: 1
+    folder: Stream Pipeline
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

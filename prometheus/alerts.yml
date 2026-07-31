@@ -1,0 +1,34 @@
+# Alerting rules for the stream-pipeline observability layer.
+# Loaded via rule_files in prometheus.yml; inspect at /api/v1/rules.
+
+groups:
+  - name: pipeline-health
+    rules:
+      - alert: ConsumerLagHigh
+        expr: sp_consumer_lag > 1000
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: >-
+            Consumer lag high for group {{ $labels.group }} on
+            {{ $labels.topic }}[{{ $labels.partition }}]
+          description: >-
+            Group {{ $labels.group }} is {{ $value }} messages behind the end
+            of {{ $labels.topic }} partition {{ $labels.partition }} and has
+            been for 2 minutes. Check the consumer process (ports and
+            services are documented in src/common/metrics.py) and the
+            pipeline-health Grafana dashboard.
+
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scrape target {{ $labels.job }} ({{ $labels.instance }}) is down"
+          description: >-
+            Prometheus has not been able to scrape {{ $labels.job }} at
+            {{ $labels.instance }} for 2 minutes. Host processors only serve
+            metrics while running with METRICS_PORT set, so this either means
+            the process died or it was started without metrics enabled.

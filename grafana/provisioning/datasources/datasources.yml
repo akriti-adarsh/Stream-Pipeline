@@ -1,0 +1,33 @@
+# Grafana datasource provisioning for the stream-pipeline stack.
+# Both datasources address container-network names (prometheus:9090,
+# postgres:5432), not the shifted host ports, because Grafana itself runs
+# inside the compose "pipeline" network.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 5s
+
+  - name: Postgres
+    uid: postgres
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    user: stream
+    editable: false
+    jsonData:
+      database: stream
+      sslmode: disable
+      postgresVersion: 1600
+      maxOpenConns: 4
+      maxIdleConns: 2
+    secureJsonData:
+      password: stream
