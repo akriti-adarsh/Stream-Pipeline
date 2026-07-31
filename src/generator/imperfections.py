@@ -39,6 +39,7 @@ class Imperfector:
             "late": 0,
             "malformed": 0,
             "null_field": 0,
+            "bad_data": 0,
             "clean": 0,
         }
 
@@ -51,6 +52,7 @@ class Imperfector:
             return [event]
 
         event = self._maybe_null_fields(event)
+        event = self._maybe_bad_data(event)
         roll = self._rng.random()
         cfg = self._cfg
         out: list[SourceEvent]
@@ -83,6 +85,19 @@ class Imperfector:
             self.stats["malformed"] += 1
             return replace(event, corrupt=True)
         return event
+
+    def _maybe_bad_data(self, event: SourceEvent) -> SourceEvent:
+        """Schema-valid but semantically-broken records: coordinates far outside
+        any city and a negative fare. These sail through serialisation and land
+        in Postgres, which is the point: the Great Expectations gates, not the
+        serde layer, must be what catches them."""
+        if self._rng.random() >= self._cfg.bad_data_rate:
+            return event
+        self.stats["bad_data"] += 1
+        value = {**event.value, "pickup_lat": 99.9, "pickup_lon": 199.9}
+        if value.get("fare_cents") is not None:
+            value["fare_cents"] = -abs(int(value["fare_cents"]))
+        return replace(event, value=value)
 
     def _maybe_null_fields(self, event: SourceEvent) -> SourceEvent:
         if (

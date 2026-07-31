@@ -54,6 +54,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--malformed-rate", type=float, default=0.002)
     parser.add_argument("--null-rate", type=float, default=0.01)
     parser.add_argument("--abandon-rate", type=float, default=0.003)
+    parser.add_argument(
+        "--bad-data-rate",
+        type=float,
+        default=0.0,
+        help="rate of schema-valid but semantically-broken records (DQ gate demo)",
+    )
     parser.add_argument("--perfect", action="store_true", help="disable every imperfection")
     parser.add_argument(
         "--evolve-after",
@@ -78,6 +84,7 @@ def config_from_args(args: argparse.Namespace) -> GeneratorConfig:
         malformed_rate=args.malformed_rate,
         null_field_rate=args.null_rate,
         abandon_rate=args.abandon_rate,
+        bad_data_rate=args.bad_data_rate,
         evolve_after_sec=args.evolve_after,
     )
     return cfg.perfect() if args.perfect else cfg

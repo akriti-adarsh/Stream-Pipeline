@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from random import Random
+from zlib import crc32
 
 from common.geo import haversine_km
 from generator import diurnal
@@ -72,6 +73,12 @@ class RideSimulator:
         self._rng = rng
         self._fleet = fleet
         self._anchor_ms = anchor_ms
+        # Ride ids must be unique ACROSS runs, not just within one: downstream
+        # joins key on ride_id and payments key on t-<ride_id>, so a restarted
+        # counter would marry run A's fare to run B's payment. The token is a
+        # pure function of (seed, anchor), so determinism survives: same
+        # config, same ids; different run, disjoint ids.
+        self._run_token = f"{crc32(f'{cfg.seed}:{anchor_ms}'.encode()) & 0xFFFFFF:06x}"
         self._active: dict[str, ActiveRide] = {}
         self._payments: list[tuple[int, SourceEvent]] = []
         self._counter = 0
@@ -111,7 +118,7 @@ class RideSimulator:
     def _create_ride(self, now_ms: int) -> SourceEvent:
         self._counter += 1
         city = self._pick_city()
-        ride_id = f"r-{self._counter:08d}"
+        ride_id = f"r-{self._run_token}-{self._counter:06d}"
         pickup = self.sample_point(city)
         dropoff = self.sample_point(city)
         if haversine_km(*pickup, *dropoff) < 0.5:

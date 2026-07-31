@@ -15,6 +15,7 @@ dependencies = [
     "psycopg[binary]>=3.3.4",
     "pydeck>=0.9.3",
     "pyiceberg[pyarrow,s3fs]>=0.11.1",
+    "sqlalchemy>=2.0.51",
     "streamlit>=1.60.0",
 ]
 
@@ -42,6 +43,7 @@ packages = [
     "src/sinks",
     "src/dlq",
     "src/quality",
+    "src/observability",
 ]
 
 [tool.ruff]
@@ -90,6 +92,12 @@ ignore_missing_imports = true
 # helpers in common.schemas would otherwise all trip no-any-return.
 module = ["common.schemas"]
 warn_return_any = false
+
+[[tool.mypy.overrides]]
+# great_expectations re-exports its expectation classes without __all__;
+# under strict no-implicit-reexport every import trips attr-defined.
+module = ["quality.suites"]
+disable_error_code = ["attr-defined"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

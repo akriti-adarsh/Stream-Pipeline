@@ -38,6 +38,9 @@ class GeneratorConfig:
     late_max_sec: float = 600.0
     malformed_rate: float = 0.002
     null_field_rate: float = 0.01
+    # Semantically-invalid (but schema-valid) records: off by default, cranked
+    # up deliberately to make the Great Expectations gates fail on demand.
+    bad_data_rate: float = 0.0
     # Schema evolution: after this many REAL seconds (sim elapsed = value * speed)
     # the generator switches to payload_version 2 with the promo_code field.
     evolve_after_sec: float | None = None
@@ -53,6 +56,7 @@ class GeneratorConfig:
             malformed_rate=0.0,
             null_field_rate=0.0,
             abandon_rate=0.0,
+            bad_data_rate=0.0,
         )
 
     def cancel_prob(self, stage: str) -> float:
