@@ -11,6 +11,8 @@ from typing import Any
 
 from confluent_kafka import TopicPartition
 
+from common import topics as topic_names
+
 
 class FakeMessage:
     def __init__(
@@ -118,21 +120,25 @@ class FakeTransactionalProducer:
     def abort_transaction(self) -> None:
         self.log.append(("abort", None))
 
-    def committed_sessions(self) -> list[dict[str, Any]]:
-        """Session values produced in transactions that COMMITTED."""
-        sessions: list[dict[str, Any]] = []
+    def committed_records(self, topic: str) -> list[dict[str, Any]]:
+        """Values produced to `topic` in transactions that COMMITTED."""
+        records: list[dict[str, Any]] = []
         pending: list[dict[str, Any]] = []
         for op, payload in self.log:
             if op == "begin":
                 pending = []
             elif op == "produce":
-                pending.append(json.loads(payload[2]))
+                if payload[0] == topic:
+                    pending.append(json.loads(payload[2]))
             elif op == "commit":
-                sessions.extend(pending)
+                records.extend(pending)
                 pending = []
             elif op in ("abort", "commit_failed"):
                 pending = []
-        return sessions
+        return records
+
+    def committed_sessions(self) -> list[dict[str, Any]]:
+        return self.committed_records(topic_names.RIDES_SESSIONS)
 
 
 def json_deserialize(topic: str, payload: bytes) -> dict[str, Any]:

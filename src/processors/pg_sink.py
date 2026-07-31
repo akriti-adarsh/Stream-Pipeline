@@ -38,10 +38,17 @@ from confluent_kafka.serialization import MessageField, SerializationContext
 from common import topics
 from common.kafka import consumer_config
 from common.logging import configure_logging, with_ctx
+from common.metrics import (
+    DLQ_MESSAGES,
+    MESSAGES_PROCESSED,
+    PROCESSING_LATENCY,
+    ROWS_WRITTEN,
+    maybe_start_metrics_server,
+)
 from common.schemas import (
     driver_location_deserializer,
     make_registry_client,
-    payment_deserializer,
+    parse_payment,
     ride_event_deserializer,
     ride_session_deserializer,
 )
@@ -51,12 +58,21 @@ from generator.state_machine import EVENT_SEQ, RideEventType
 
 PoisonHandler = Callable[[Any, Exception], None]
 
+SERVICE = "pg-sink"
+
 SINK_TOPICS = (
     topics.RIDES_EVENTS,
     topics.RIDES_SESSIONS,
     topics.PAYMENTS_TRANSACTIONS,
     topics.DRIVERS_LOCATIONS,
 )
+
+SINK_TABLES: dict[str, str] = {
+    topics.RIDES_EVENTS: "raw.rides_events",
+    topics.RIDES_SESSIONS: "raw.ride_sessions",
+    topics.PAYMENTS_TRANSACTIONS: "raw.payments_transactions",
+    topics.DRIVERS_LOCATIONS: "raw.driver_locations",
+}
 
 DDL = """
 CREATE SCHEMA IF NOT EXISTS raw;
@@ -302,7 +318,6 @@ def build_deserializers(registry_url: str) -> dict[str, Callable[[str, bytes], d
     per_topic = {
         topics.RIDES_EVENTS: ride_event_deserializer(client),
         topics.RIDES_SESSIONS: ride_session_deserializer(client),
-        topics.PAYMENTS_TRANSACTIONS: payment_deserializer(client),
         topics.DRIVERS_LOCATIONS: driver_location_deserializer(client),
     }
 
@@ -315,7 +330,11 @@ def build_deserializers(registry_url: str) -> dict[str, Callable[[str, bytes], d
 
         return call
 
-    return {topic: wrap(deser) for topic, deser in per_topic.items()}
+    wrapped = {topic: wrap(deser) for topic, deser in per_topic.items()}
+    # Payments travel as plain JSON (validated against the registered JSON
+    # Schema subject); see common.schemas.payment_json_bytes for the why.
+    wrapped[topics.PAYMENTS_TRANSACTIONS] = lambda topic, payload: parse_payment(payload)
+    return wrapped
 
 
 class PgSink:
@@ -426,12 +445,15 @@ class PgSink:
             self._consumer.close()
 
     def process_batch(self, msgs: list[Any]) -> dict[str, int]:
+        batch_started = time.perf_counter()
+        consumed: dict[str, int] = {}
         rows: dict[str, list[tuple[Any, ...]]] = {topic: [] for topic in SINK_TOPICS}
         max_offsets: dict[tuple[str, int], int] = {}
         for msg in msgs:
             if msg.error() is not None:
                 raise RuntimeError(f"consumer error: {msg.error()}")
             topic = msg.topic()
+            consumed[topic] = consumed.get(topic, 0) + 1
             key = (topic, msg.partition())
             max_offsets[key] = max(max_offsets.get(key, -1), msg.offset())
             try:
@@ -439,6 +461,7 @@ class PgSink:
                 rows[topic].append(ROW_BUILDERS[topic](value, msg.partition(), msg.offset()))
             except Exception as error:  # poison messages take the DLQ path
                 self.poison_seen += 1
+                DLQ_MESSAGES.labels(service=SERVICE, topic=topics.dlq_topic(topic)).inc()
                 self._on_poison(msg, error)
         written = {topic: len(batch) for topic, batch in rows.items() if batch}
         try:
@@ -458,10 +481,16 @@ class PgSink:
             self._conn.rollback()
             raise
         self.rows_written += sum(written.values())
+        for topic, count in consumed.items():
+            MESSAGES_PROCESSED.labels(service=SERVICE, topic=topic).inc(count)
+        for topic, count in written.items():
+            ROWS_WRITTEN.labels(service=SERVICE, table=SINK_TABLES[topic]).inc(count)
+        PROCESSING_LATENCY.labels(service=SERVICE).observe(time.perf_counter() - batch_started)
         return written
 
 
 def main() -> int:
+    maybe_start_metrics_server(SERVICE)
     sink = PgSink(PgSinkConfig.from_env())
     sink.run()
     return 0

@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import json
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 from confluent_kafka.schema_registry import Schema, SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer, AvroSerializer
-from confluent_kafka.schema_registry.json_schema import JSONDeserializer, JSONSerializer
 
 from common import topics
 
@@ -107,12 +108,31 @@ def ride_session_deserializer(client: SchemaRegistryClient) -> AvroDeserializer:
     return AvroDeserializer(client, load_avro_schema("rides_sessions.avsc"))
 
 
-def payment_serializer(client: SchemaRegistryClient) -> JSONSerializer:
-    return JSONSerializer(load_json_schema("payments_transactions.schema.json"), client)
+def payment_json_bytes(value: dict[str, Any]) -> bytes:
+    """Serialise a payment as PLAIN JSON, validated against the registered schema.
+
+    Deliberately not Confluent-framed: open-source Flink has no format for the
+    registry's 5-byte JSON Schema framing, and the payments topic feeds a
+    Flink interval join. The subject still lives in the registry (see
+    register_all), so the schema is governed; only the wire framing differs.
+    Recorded in DEVIATIONS.md.
+    """
+    jsonschema.validate(value, _payment_schema())
+    return json.dumps(value, separators=(",", ":")).encode()
 
 
-def payment_deserializer(client: SchemaRegistryClient) -> JSONDeserializer:
-    return JSONDeserializer(load_json_schema("payments_transactions.schema.json"))
+def parse_payment(data: bytes) -> dict[str, Any]:
+    """Parse and validate a plain-JSON payment; raises on any malformed input."""
+    value = json.loads(data)
+    if not isinstance(value, dict):
+        raise jsonschema.ValidationError(f"payment must be an object, got {type(value)}")
+    jsonschema.validate(value, _payment_schema())
+    return value
+
+
+@lru_cache(maxsize=1)
+def _payment_schema() -> dict[str, Any]:
+    return parsed(load_json_schema("payments_transactions.schema.json"))
 
 
 def parsed(schema_text: str) -> dict[str, Any]:

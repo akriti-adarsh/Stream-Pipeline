@@ -7,6 +7,11 @@ DRIVERS_LOCATIONS = "drivers.locations"
 PAYMENTS_TRANSACTIONS = "payments.transactions"
 RIDES_SESSIONS = "rides.sessions"
 LATE_EVENTS = "late.events"
+# Poison-free mirror of rides.events, forwarded transactionally by the
+# sessionizer (which owns the DLQ split). Exists because open-source Flink's
+# avro-confluent format cannot skip undeserialisable records: one poison
+# message would fail the whole declarative pipeline. See DEVIATIONS.md.
+RIDES_EVENTS_CLEAN = "rides.events.clean"
 
 SOURCE_TOPICS = (RIDES_EVENTS, DRIVERS_LOCATIONS, PAYMENTS_TRANSACTIONS)
 

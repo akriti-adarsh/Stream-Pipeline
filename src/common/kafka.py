@@ -14,6 +14,7 @@ from common import topics
 
 TOPIC_PARTITIONS: dict[str, int] = {
     topics.RIDES_EVENTS: 6,
+    topics.RIDES_EVENTS_CLEAN: 6,
     topics.DRIVERS_LOCATIONS: 6,
     topics.PAYMENTS_TRANSACTIONS: 3,
     topics.RIDES_SESSIONS: 3,

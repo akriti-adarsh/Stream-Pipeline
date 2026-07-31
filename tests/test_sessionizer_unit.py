@@ -74,6 +74,7 @@ def _sessionizer(
         producer=producer,
         deserialize=json_deserialize,
         serialize_session=json_serialize,
+        serialize_event=json_serialize,
         store=StateStore(cfg.state_path),
     )
 
@@ -91,8 +92,13 @@ def test_full_ride_in_one_batch_emits_one_session_with_correct_txn_ordering(
     assert sessions[0]["terminal_state"] == "completed"
 
     ops = [op for op, _ in producer.log]
-    assert ops == ["begin", "produce", "send_offsets", "commit"]
-    _, offsets = producer.log[2]
+    assert ops[0] == "begin"
+    assert ops[-2:] == ["send_offsets", "commit"]
+    assert ops[1:-2] == ["produce"] * 6  # 5 clean-mirror forwards + 1 session
+    produced_topics = [payload[0] for op, payload in producer.log if op == "produce"]
+    assert produced_topics.count(topics.RIDES_EVENTS_CLEAN) == 5
+    assert produced_topics.count(topics.RIDES_SESSIONS) == 1
+    _, offsets = next(entry for entry in producer.log if entry[0] == "send_offsets")
     assert offsets == [(topics.RIDES_EVENTS, 0, 105)]  # last offset 104 + 1
 
 
@@ -136,6 +142,7 @@ def test_commit_failure_aborts_and_rolls_back_state_then_replay_emits_once(
         producer=producer2,
         deserialize=json_deserialize,
         serialize_session=json_serialize,
+        serialize_event=json_serialize,
         store=StateStore(cfg.state_path),
     )
     sess2.on_assign(consumer2, [TopicPartition(topics.RIDES_EVENTS, 0)])
@@ -179,6 +186,7 @@ def test_crash_hook_fires_after_state_commit_before_kafka_txn(
         producer=producer2,
         deserialize=json_deserialize,
         serialize_session=json_serialize,
+        serialize_event=json_serialize,
         store=store,
     )
     sess2.on_assign(consumer2, [TopicPartition(topics.RIDES_EVENTS, 0)])

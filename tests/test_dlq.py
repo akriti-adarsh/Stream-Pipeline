@@ -83,6 +83,7 @@ def test_sessionizer_produces_envelope_inside_transaction(tmp_path: Path) -> Non
         producer=producer,
         deserialize=json_deserialize,
         serialize_session=json_serialize,
+        serialize_event=json_serialize,
         store=StateStore(cfg.state_path),
     )
     sess.on_assign(consumer, [TopicPartition(topics.RIDES_EVENTS, 0)])

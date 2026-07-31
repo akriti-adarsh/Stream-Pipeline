@@ -28,16 +28,19 @@ from confluent_kafka.serialization import MessageField, SerializationContext
 from common import topics
 from common.kafka import ensure_topics, producer_config
 from common.logging import with_ctx
+from common.metrics import EVENTS_ACK_FAILED, EVENTS_PRODUCED, maybe_start_metrics_server
 from common.schemas import (
     driver_location_serializer,
     make_registry_client,
-    payment_serializer,
+    payment_json_bytes,
     register_all,
     ride_event_serializer,
 )
 from generator.events import SourceEvent
 
 Serializer = Callable[[str, dict[str, Any]], bytes]
+
+SERVICE = "generator"
 
 CORRUPT_FIRST_BYTE = 0xFF
 
@@ -61,7 +64,9 @@ def build_serializers(registry_url: str, *, ride_schema_version: int = 2) -> dic
     return {
         topics.RIDES_EVENTS: _wrap(ride_event_serializer(client, version=ride_schema_version)),
         topics.DRIVERS_LOCATIONS: _wrap(driver_location_serializer(client)),
-        topics.PAYMENTS_TRANSACTIONS: _wrap(payment_serializer(client)),
+        # Plain JSON on the wire (validated against the registered subject);
+        # see payment_json_bytes for why there is no Confluent framing here.
+        topics.PAYMENTS_TRANSACTIONS: lambda topic, value: payment_json_bytes(value),
     }
 
 
@@ -79,6 +84,8 @@ class KafkaTransport:
         initialise: bool = True,
     ) -> None:
         self._log = logging.getLogger("generator-transport")
+        # No-op unless METRICS_PORT is set, so tests and library use stay silent.
+        maybe_start_metrics_server(SERVICE)
         if initialise:
             ensure_topics(bootstrap)
             register_all(registry_url)
@@ -125,11 +132,13 @@ class KafkaTransport:
         def callback(err: Any, msg: Any) -> None:
             if err is not None:
                 self.failed[topic] += 1
+                EVENTS_ACK_FAILED.labels(service=SERVICE, topic=topic).inc()
                 self._log.warning(
                     "delivery failed", extra=with_ctx(topic=topic, error=str(err), id=stable_id)
                 )
                 return
             self.acked[topic] += 1
+            EVENTS_PRODUCED.labels(service=SERVICE, topic=topic).inc()
             if self._manifest is not None and stable_id is not None and not corrupt:
                 self._manifest.write(json.dumps({"topic": topic, "id": stable_id}) + "\n")
 

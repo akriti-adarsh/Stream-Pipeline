@@ -43,9 +43,21 @@ from confluent_kafka.serialization import MessageField, SerializationContext
 from common import topics
 from common.kafka import consumer_config, producer_config
 from common.logging import configure_logging, with_ctx
+from common.metrics import (
+    DLQ_MESSAGES,
+    MESSAGES_PROCESSED,
+    PROCESSING_LATENCY,
+    SESSIONS_EMITTED,
+    STATE_CLOSES_ROWS,
+    STATE_JOURNAL_ROWS,
+    TRANSACTIONS_ABORTED,
+    TRANSACTIONS_COMMITTED,
+    maybe_start_metrics_server,
+)
 from common.schemas import (
     make_registry_client,
     ride_event_deserializer,
+    ride_event_serializer,
     ride_session_serializer,
 )
 from common.times import to_epoch_ms
@@ -60,6 +72,8 @@ from processors.session_builder import (
 from processors.state_store import CloseRow, JournalRow, StateStore
 
 PoisonHandler = Callable[[Any, Exception], None]
+
+SERVICE = "sessionizer"
 
 
 @dataclass
@@ -102,6 +116,7 @@ class Sessionizer:
         producer: Any | None = None,
         deserialize: Callable[[str, bytes], dict[str, Any]] | None = None,
         serialize_session: Callable[[str, dict[str, Any]], bytes] | None = None,
+        serialize_event: Callable[[str, dict[str, Any]], bytes] | None = None,
         store: StateStore | None = None,
         on_poison: PoisonHandler | None = None,
     ) -> None:
@@ -118,10 +133,11 @@ class Sessionizer:
             if producer is not None
             else Producer(producer_config(cfg.bootstrap, transactional_id=cfg.transactional_id))
         )
-        if deserialize is None or serialize_session is None:
+        if deserialize is None or serialize_session is None or serialize_event is None:
             client = make_registry_client(cfg.registry_url)
             avro_deser = ride_event_deserializer(client)
             avro_ser = ride_session_serializer(client)
+            event_ser = ride_event_serializer(client, version=2)
 
             def _deserialize(topic: str, payload: bytes) -> dict[str, Any]:
                 value = avro_deser(payload, SerializationContext(topic, MessageField.VALUE))
@@ -133,10 +149,17 @@ class Sessionizer:
                 assert isinstance(data, bytes)
                 return data
 
+            def _serialize_event(topic: str, value: dict[str, Any]) -> bytes:
+                data = event_ser(value, SerializationContext(topic, MessageField.VALUE))
+                assert isinstance(data, bytes)
+                return data
+
             deserialize = deserialize if deserialize is not None else _deserialize
             serialize_session = serialize_session if serialize_session is not None else _serialize
+            serialize_event = serialize_event if serialize_event is not None else _serialize_event
         self._deserialize = deserialize
         self._serialize_session = serialize_session
+        self._serialize_event = serialize_event
         self._on_poison: PoisonHandler = on_poison if on_poison is not None else self._log_poison
         self._accs: dict[str, RideAccumulator] = {}
         self._acc_partition: dict[str, int] = {}
@@ -220,9 +243,12 @@ class Sessionizer:
     # ------------------------------------------------------------------ batch
 
     def process_batch(self, msgs: list[Any]) -> list[dict[str, Any]]:
+        batch_started = time.perf_counter()
+        consumed = 0
         journal: list[JournalRow] = []
         batch_state: dict[int, _PartitionState] = {}
         poisons: list[Envelope] = []
+        clean_forward: list[dict[str, Any]] = []
 
         for msg in msgs:
             if msg.error() is not None:
@@ -230,6 +256,7 @@ class Sessionizer:
                 if error.code() == KafkaError._PARTITION_EOF:
                     continue
                 raise RuntimeError(f"consumer error: {error}")
+            consumed += 1
             partition = msg.partition()
             pstate = self._partitions.setdefault(partition, _PartitionState())
             bstate = batch_state.setdefault(partition, _PartitionState(max_offset_in_batch=-1))
@@ -243,6 +270,7 @@ class Sessionizer:
                 continue
             value = {**value, "event_ts": to_epoch_ms(value["event_ts"])}
             ride_id = str(value["ride_id"])
+            clean_forward.append(value)
             pstate.watermark_ms = max(pstate.watermark_ms, int(value["event_ts"]))
             if self._store.is_closed(ride_id):
                 continue  # late event for an already-closed ride; the session is final
@@ -263,10 +291,15 @@ class Sessionizer:
             self._log.warning("crash hook firing inside the two-store gap")
             os._exit(137)
 
-        self._transact(sessions, batch_state, poisons)
+        self._transact(sessions, batch_state, poisons, clean_forward)
         for close in closes:
             self._accs.pop(close.ride_id, None)
             self._acc_partition.pop(close.ride_id, None)
+        MESSAGES_PROCESSED.labels(service=SERVICE, topic=topics.RIDES_EVENTS).inc(consumed)
+        PROCESSING_LATENCY.labels(service=SERVICE).observe(time.perf_counter() - batch_started)
+        journal_rows, closes_rows = self._store.counts()
+        STATE_JOURNAL_ROWS.labels(service=SERVICE).set(journal_rows)
+        STATE_CLOSES_ROWS.labels(service=SERVICE).set(closes_rows)
         return [dict(s) for s in sessions]
 
     def _collect_closes(
@@ -295,6 +328,7 @@ class Sessionizer:
         sessions: list[dict[str, Any]],
         batch_state: dict[int, _PartitionState],
         poisons: list[Envelope] | None = None,
+        clean_forward: list[dict[str, Any]] | None = None,
     ) -> None:
         offsets = [
             TopicPartition(topics.RIDES_EVENTS, partition, state.max_offset_in_batch + 1)
@@ -310,6 +344,17 @@ class Sessionizer:
                     key=str(session["ride_id"]).encode(),
                     value=payload,
                 )
+            for value in clean_forward or []:
+                # The poison firewall: every successfully-deserialised event is
+                # re-published to the clean mirror inside this same transaction,
+                # exactly once, so declarative consumers (Flink's avro-confluent
+                # format cannot skip poison) get a schema-clean feed with the
+                # SAME event times, including late and out-of-order arrivals.
+                self._producer.produce(
+                    topic=topics.RIDES_EVENTS_CLEAN,
+                    key=str(value["ride_id"]).encode(),
+                    value=self._serialize_event(topics.RIDES_EVENTS_CLEAN, value),
+                )
             for envelope in poisons or []:
                 # Dead letters ride in the same transaction: a DLQ record exists
                 # if and only if the offsets that produced it were committed.
@@ -323,9 +368,14 @@ class Sessionizer:
             )
             self._producer.commit_transaction()
             self.sessions_emitted += len(sessions)
+            TRANSACTIONS_COMMITTED.labels(service=SERVICE).inc()
+            SESSIONS_EMITTED.labels(service=SERVICE).inc(len(sessions))
+            for envelope in poisons or []:
+                DLQ_MESSAGES.labels(service=SERVICE, topic=dlq_topic(envelope.source_topic)).inc()
         except Exception:
             # Abort, erase the batch's local state, and let the supervisor
             # restart us: recovery replays the batch from the committed offset.
+            TRANSACTIONS_ABORTED.labels(service=SERVICE).inc()
             self._producer.abort_transaction()
             for partition, state in batch_state.items():
                 if state.max_offset_in_batch >= 0:
@@ -338,6 +388,7 @@ class Sessionizer:
 
 
 def main() -> int:
+    maybe_start_metrics_server(SERVICE)
     cfg = SessionizerConfig.from_env()
     Sessionizer(cfg).run()
     return 0

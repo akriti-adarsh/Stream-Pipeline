@@ -142,11 +142,323 @@ services:
       - pipeline
     restart: "no"
 
+  # --- flink services (owned by the Flink milestone; do not edit elsewhere) ---
+
+  # Flink session cluster (profile "full" only). Image is built from
+  # flink/Dockerfile: pinned flink:1.20.5-scala_2.12-java17 plus pinned
+  # Kafka/JDBC/Postgres/avro-confluent jars (see flink/VERSIONS.md).
+  flink-jobmanager:
+    build: flink/
+    image: stream-pipeline-flink:1.20.5
+    profiles: ["full"]
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        rest.address: flink-jobmanager
+        rest.bind-address: 0.0.0.0
+        jobmanager.memory.process.size: 1600m
+    ports:
+      - "18083:8081" # Flink web UI / REST (8081 host is taken by schema registry mapping)
+    volumes:
+      - ./flink/sql:/opt/sql:ro
+    networks:
+      - pipeline
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/overview || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 15s
+
+  # One-shot: submits every flink/sql/*.sql file to the session cluster via
+  # the SQL client, then exits 0. Runs BEFORE the taskmanager on purpose:
+  # job submission needs no task slots (jobs wait in CREATED until slots
+  # appear), and compose "up --wait" only accepts a one-shot exiting 0 when
+  # some service depends on it with service_completed_successfully, which
+  # the taskmanager below does. Re-running it re-submits INSERT jobs;
+  # submit.sh skips any pipeline that is already RUNNING to stay idempotent.
+  flink-sql-submit:
+    build: flink/
+    image: stream-pipeline-flink:1.20.5
+    profiles: ["full"]
+    entrypoint: ["bash", "/opt/submit/submit.sh"]
+    environment:
+      JOBMANAGER_HOST: flink-jobmanager
+    volumes:
+      - ./flink/sql:/opt/sql:ro
+      - ./flink/submit.sh:/opt/submit/submit.sh:ro
+    networks:
+      - pipeline
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  flink-taskmanager:
+    build: flink/
+    image: stream-pipeline-flink:1.20.5
+    profiles: ["full"]
+    command: taskmanager
+    environment:
+      # 8 slots: enough for every submitted pipeline at parallelism 1.
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 8
+        taskmanager.memory.process.size: 3072m
+    networks:
+      - pipeline
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+      flink-sql-submit:
+        condition: service_completed_successfully
+
+  # --- iceberg catalog service (owned by the Iceberg milestone; do not edit elsewhere) ---
+
+  # Apache-maintained REST catalog fixture (see flink/VERSIONS.md for the image
+  # audit). Backend is its default in-memory SQLite JdbcCatalog: table metadata
+  # POINTERS reset with the container, while all data and metadata FILES live in
+  # s3://lakehouse on MinIO. Acceptable for a dev stack; production would point
+  # the jdbc.* properties at Postgres.
+  iceberg-rest:
+    image: apache/iceberg-rest-fixture:1.10.1
+    profiles: ["full"]
+    depends_on:
+      minio:
+        condition: service_healthy
+      bucket-init:
+        condition: service_completed_successfully
+    environment:
+      # CATALOG_* -> iceberg properties: single _ becomes a dot, double __ a
+      # hyphen (convention verified in flink/VERSIONS.md).
+      CATALOG_WAREHOUSE: s3://lakehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: us-east-1
+    ports:
+      - "18181:8181" # REST catalog for host clients (host 8181 kept clear of other stacks)
+    networks:
+      - pipeline
+    healthcheck:
+      # The image turned out to be Debian based (Temurin JRE), not bare: it
+      # ships bash AND curl (verified with `docker run --entrypoint /bin/sh ...
+      # which bash curl`), so an in-container curl probe of the REST config
+      # endpoint works and is the strongest liveness signal available.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8181/v1/config"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  # --- observability services (owned by the observability milestone; do not edit elsewhere) ---
+
+  # Prometheus scrapes the HOST-side Python processors through
+  # host.docker.internal (see prometheus/prometheus.yml for the port map) and
+  # loads the alert rules from prometheus/alerts.yml. Host port 19090 keeps
+  # clear of other stacks on this machine, matching the 19xxx convention.
+  prometheus:
+    image: prom/prometheus:v3.13.2
+    profiles: ["full"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=2d
+    ports:
+      - "19090:9090" # Prometheus UI / API for the host
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+    extra_hosts:
+      # Docker Desktop resolves host.docker.internal natively; host-gateway
+      # keeps the same name working on plain Linux engines.
+      - "host.docker.internal:host-gateway"
+    networks:
+      - pipeline
+    healthcheck:
+      # busybox wget (the image ships no curl); /-/healthy is the readiness
+      # endpoint Prometheus documents for exactly this purpose
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9090/-/healthy || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Grafana provisions both datasources (Prometheus + the stack's Postgres)
+  # and the two dashboards from ./grafana at boot; admin/admin for API work,
+  # anonymous Viewer access so the dashboards open without a login wall.
+  grafana:
+    image: grafana/grafana:12.4.6
+    profiles: ["full"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: dark
+    ports:
+      - "13000:3000" # Grafana UI (3000 kept clear of other local projects)
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - pipeline
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  # --- application services (single image, one entrypoint per service) ---
+  # The core profile carries the exactly-once heart (generator, sessionizer,
+  # pg-sink); full adds the lakehouse sink, quality loop, and dashboard.
+
+  generator:
+    build: .
+    image: stream-pipeline-app:local
+    profiles: ["core", "full"]
+    command: >
+      python -m generator --sink kafka --speed 60 --duration 86400 --seed 42
+      --bootstrap redpanda:9092 --registry http://redpanda:8081
+    environment:
+      METRICS_PORT: "9101"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - pipeline
+    restart: unless-stopped
+
+  sessionizer:
+    build: .
+    image: stream-pipeline-app:local
+    profiles: ["core", "full"]
+    command: python -m processors.ride_sessionizer
+    environment:
+      KAFKA_BOOTSTRAP: redpanda:9092
+      SCHEMA_REGISTRY_URL: http://redpanda:8081
+      STATE_PATH: /state/sessionizer.db
+      METRICS_PORT: "9102"
+    volumes:
+      - sessionizer-state:/state
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - pipeline
+    restart: unless-stopped
+
+  pg-sink:
+    build: .
+    image: stream-pipeline-app:local
+    profiles: ["core", "full"]
+    command: python -m processors.pg_sink
+    environment:
+      KAFKA_BOOTSTRAP: redpanda:9092
+      SCHEMA_REGISTRY_URL: http://redpanda:8081
+      POSTGRES_DSN: postgresql://stream:stream@postgres:5432/stream
+      METRICS_PORT: "9103"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - pipeline
+    restart: unless-stopped
+
+  iceberg-sink:
+    build: .
+    image: stream-pipeline-app:local
+    profiles: ["full"]
+    command: python -m sinks.iceberg_sink
+    environment:
+      KAFKA_BOOTSTRAP: redpanda:9092
+      SCHEMA_REGISTRY_URL: http://redpanda:8081
+      ICEBERG_REST_URI: http://iceberg-rest:8181
+      ICEBERG_S3_ENDPOINT: http://minio:9000
+      METRICS_PORT: "9104"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      iceberg-rest:
+        condition: service_healthy
+    networks:
+      - pipeline
+    restart: unless-stopped
+
+  lag-exporter:
+    build: .
+    image: stream-pipeline-app:local
+    profiles: ["full"]
+    command: python -m observability.lag_exporter
+    environment:
+      KAFKA_BOOTSTRAP: redpanda:9092
+      POSTGRES_DSN: postgresql://stream:stream@postgres:5432/stream
+      METRICS_PORT: "9105"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - pipeline
+    restart: unless-stopped
+
+  dq-runner:
+    build: .
+    image: stream-pipeline-app:local
+    profiles: ["full"]
+    command: >
+      python -m quality.runner --interval 60 --serve-metrics 9109
+      --dsn postgresql://stream:stream@postgres:5432/stream
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pipeline
+    restart: unless-stopped
+
+  ui:
+    build: .
+    image: stream-pipeline-app:local
+    profiles: ["full"]
+    command: >
+      streamlit run ui/streamlit_app.py --server.headless true
+      --server.port 8601 --server.address 0.0.0.0
+    environment:
+      POSTGRES_DSN: postgresql://stream:stream@postgres:5432/stream
+    ports:
+      - "8601:8601" # Streamlit dashboard
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pipeline
+    restart: unless-stopped
+
 networks:
   pipeline:
     name: pipeline
 
 volumes:
+  sessionizer-state:
   redpanda-data:
   postgres-data:
   minio-data:

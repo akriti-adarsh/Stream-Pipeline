@@ -56,5 +56,21 @@ def test_serde_factories_construct_without_network() -> None:
     schemas.driver_location_deserializer(client)
     schemas.ride_session_serializer(client)
     schemas.ride_session_deserializer(client)
-    schemas.payment_serializer(client)
-    schemas.payment_deserializer(client)
+
+
+def test_payment_plain_json_roundtrip_validates() -> None:
+    payment = {
+        "txn_id": "t-1",
+        "ride_id": "r-1",
+        "amount_cents": 100,
+        "status": "completed",
+        "method": "card",
+        "ts": 1_750_000_000_000,
+    }
+    data = schemas.payment_json_bytes(payment)
+    assert data[0:1] == b"{", "plain JSON, no Confluent framing byte"
+    assert schemas.parse_payment(data) == payment
+    with pytest.raises(Exception, match=r"(?i)valid"):
+        schemas.payment_json_bytes({**payment, "status": "nope"})
+    with pytest.raises(ValueError):  # json.JSONDecodeError subclasses ValueError
+        schemas.parse_payment(b"\xffnot-json")
