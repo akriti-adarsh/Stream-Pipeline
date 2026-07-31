@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Runtime state and data
+state/
+*.db
+*.db-wal
+*.db-shm
+data/
+warehouse/
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+logs/
+
+# Great Expectations runtime artifacts
+gx/uncommitted/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,104 @@
+[project]
+name = "stream-pipeline"
+version = "0.1.0"
+description = "Real-time data platform: Redpanda, exactly-once stream processing, Iceberg lakehouse, dbt marts, quality gates, observability"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "confluent-kafka[avro,json,schemaregistry]>=2.15.0",
+    "dbt-postgres>=1.11.0",
+    "fastavro>=1.12.2",
+    "great-expectations>=1.19.1",
+    "jsonschema>=4.26.0",
+    "pandas>=3.0.5",
+    "prometheus-client>=0.26.0",
+    "psycopg[binary]>=3.3.4",
+    "pydeck>=0.9.3",
+    "pyiceberg[pyarrow,s3fs]>=0.11.1",
+    "streamlit>=1.60.0",
+]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.164.0",
+    "mypy>=2.3.0",
+    "pandas-stubs>=3.0.5.260730",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-timeout>=2.4.0",
+    "ruff>=0.16.1",
+    "types-jsonschema>=4.26.0.20260518",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "src/common",
+    "src/generator",
+    "src/processors",
+    "src/sinks",
+    "src/dlq",
+    "src/quality",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "N",        # pep8-naming
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+    "PL",       # pylint subset
+]
+ignore = [
+    "PLR0913",  # many-args: stream configs legitimately take many parameters
+    "PLR2004",  # magic values in tests and probability tables are intentional and documented
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR0915", "SIM117"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+mypy_path = "src"
+explicit_package_bases = true
+warn_unreachable = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+    "confluent_kafka.*",
+    "pydeck.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: requires the docker compose stack (deselected by default in unit runs)",
+]
+timeout = 300
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = ["src/**/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+precision = 1
