@@ -18,11 +18,8 @@ The spec is docs/BUILD_SPEC.md. This file is rules and state; the spec defines t
    green commit and update State. Do not start work you cannot finish.
 
 ## State (update at every commit)
-- Plan position: 27 of 28 committed and pushed. Last: "docs: architecture, lakehouse, runbook, adrs" (+1 extra observability commit)
-- Cold-start e2e GREEN in 227s (containerised full profile, all 6 layers asserted)
-- Kill matrix: requires CORE profile (Flink stopped; broker contention documented in test docstring); auto-create disabled on broker; txn timeouts + session-aware stability added; 3 consecutive matrix runs in flight
-- Remaining for commit 28: measurements (benchmarks/measure.py ready), screenshots (CDP shoot.py in scratchpad works, chrome attach on :9333), final README, DQ-failure Grafana demo (--bad-data-rate)
-- Uncommitted: harness fixes (test_exactly_once logging/liveness/stability, reset retry, txn timeouts, producer no-timestamp, e2e awk, compose auto-create flag, prometheus dual-home), benchmarks/, kafka_fakes timeout args
-- Live smoke: compose core healthy; generator kafka sink 15s -> 9609 events (~640/s), 4 subjects, 9 topics; stack left RUNNING for processor work
-- Infra pre-verified by agents: compose core healthy in 15.2s (Redpanda v25.3.15, PG 16.14, MinIO), flink 1.20.5 image + jars built, iceberg-rest-fixture 1.10.1; host ports 19092/18081/5433/19000/18080
-- Notes for next session: Windows host; make available in Git Bash; Docker 29.6.2 with 16.4 GB
+- Plan position: 28 of 28 COMPLETE (30 commits total: 28 milestones + 2 hardening/observability extras). Build finished 2026-07-31.
+- Suite at last commit: 129 passed, 10 deselected · Coverage: 83.4% · ruff + mypy --strict clean
+- Acceptance: e2e cold start green in 227s (all 6 layers); kill matrix 3 consecutive full runs green (12/12 SIGKILL trials); dbt 121/121; DQ gates proven failing on injected bad data (screenshot committed); throughput 3,636 msg/s sustained, produce-to-queryable p50 0.312s / p95 0.360s (benchmarks/results/)
+- Open deviations: 6, all recorded in DEVIATIONS.md
+- Notes for next session: kill matrix needs Flink stopped (core profile); screenshots via CDP attach (docs/img/); stack may be left running under docker compose --profile full
