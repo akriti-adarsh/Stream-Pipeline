@@ -1,0 +1,15 @@
+# Project-local profile: `dbt build --profiles-dir .` from the dbt/ directory.
+# Localhost defaults target the compose stack; the containerised runner
+# overrides host/port via env vars.
+stream_pipeline:
+  target: local
+  outputs:
+    local:
+      type: postgres
+      host: "{{ env_var('DBT_PG_HOST', 'localhost') }}"
+      port: "{{ env_var('DBT_PG_PORT', '5433') | as_number }}"
+      user: "{{ env_var('DBT_PG_USER', 'stream') }}"
+      password: "{{ env_var('DBT_PG_PASSWORD', 'stream') }}"
+      dbname: "{{ env_var('DBT_PG_DB', 'stream') }}"
+      schema: analytics
+      threads: 4

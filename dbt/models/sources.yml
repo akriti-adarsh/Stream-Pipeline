@@ -1,0 +1,27 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Landing tables written by the idempotent Postgres sink. Exactly-once
+      with respect to Kafka via the offsets-in-the-same-transaction pattern;
+      see src/processors/pg_sink.py.
+    database: stream
+    schema: raw
+    tables:
+      - name: rides_events
+        description: One row per ride lifecycle event, deduped on (ride_id, event_seq).
+      - name: ride_sessions
+        description: One row per closed ride, emitted by the transactional sessionizer.
+      - name: payments_transactions
+        description: Payments, deliberately 5 to 90 seconds later than ride completion.
+      - name: driver_locations
+        description: High-volume GPS pings from the simulated fleet.
+
+  - name: serving
+    description: Operational bookkeeping written by the platform itself.
+    database: stream
+    schema: serving
+    tables:
+      - name: consumer_offsets
+        description: The idempotent sink's progress ledger; part of the exactly-once story.

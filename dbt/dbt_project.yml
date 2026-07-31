@@ -1,0 +1,38 @@
+name: stream_pipeline
+version: "1.0.0"
+profile: stream_pipeline
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+snapshot-paths: ["snapshots"]
+
+target-path: target
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  stream_pipeline:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts
+
+seeds:
+  stream_pipeline:
+    +schema: seed
+    cities:
+      +column_types:
+        city_id: integer
+        name: varchar
+        center_lat: double precision
+        center_lon: double precision
+        demand_weight: double precision
+
+snapshots:
+  stream_pipeline:
+    +target_schema: snapshots
