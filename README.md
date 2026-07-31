@@ -74,7 +74,7 @@ flowchart LR
 | 5 | Generator: configurable imperfections, schema evolution | done |
 | 6 | Infra: Redpanda, Console, Postgres, MinIO in compose | done |
 | 7 | Sessionizer with local state store | done |
-| 8 | Kafka transactions for exactly-once | pending |
+| 8 | Kafka transactions for exactly-once | done |
 | 9 | Idempotent Postgres sink with offset table | pending |
 | 10 | DLQ envelope and replay script | pending |
 | 11 to 15 | Flink jobs, Iceberg sink, compaction | pending |

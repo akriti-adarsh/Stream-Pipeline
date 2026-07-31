@@ -16,6 +16,7 @@ poison -> DLQ -> fix -> replay loop with real bytes.
 from __future__ import annotations
 
 import json
+import logging
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
@@ -26,7 +27,7 @@ from confluent_kafka.serialization import MessageField, SerializationContext
 
 from common import topics
 from common.kafka import ensure_topics, producer_config
-from common.logging import configure_logging, with_ctx
+from common.logging import with_ctx
 from common.schemas import (
     driver_location_serializer,
     make_registry_client,
@@ -77,7 +78,7 @@ class KafkaTransport:
         serializers: dict[str, Serializer] | None = None,
         initialise: bool = True,
     ) -> None:
-        self._log = configure_logging("generator-transport")
+        self._log = logging.getLogger("generator-transport")
         if initialise:
             ensure_topics(bootstrap)
             register_all(registry_url)
