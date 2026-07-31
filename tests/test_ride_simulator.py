@@ -42,7 +42,10 @@ def _rides(events: list[SourceEvent]) -> dict[str, list[dict[str, Any]]]:
 @settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
 def test_no_seed_produces_an_illegal_ride(seed: int) -> None:
-    cfg = GeneratorConfig(seed=seed, anchor_ms=ANCHOR_MS, base_rides_per_min=6.0)
+    # Perfect config: the claim is about the SIMULATOR's coherence. The
+    # imperfection layer deliberately breaks ordering and injects duplicates,
+    # and has its own suite.
+    cfg = GeneratorConfig(seed=seed, anchor_ms=ANCHOR_MS, base_rides_per_min=6.0).perfect()
     for ride_events in _rides(_events(cfg, ticks=1800)).values():
         kinds = [RideEventType(e["event_type"]) for e in ride_events]
         assert kinds[0] is RideEventType.REQUESTED
@@ -69,7 +72,9 @@ def test_cancellation_rate_is_realistic() -> None:
 
 
 def test_every_completed_ride_gets_exactly_one_payment_in_window() -> None:
-    events = _events(GeneratorConfig(seed=11, anchor_ms=ANCHOR_MS, base_rides_per_min=20.0), 5400)
+    events = _events(
+        GeneratorConfig(seed=11, anchor_ms=ANCHOR_MS, base_rides_per_min=20.0).perfect(), 5400
+    )
     completed_at: dict[str, int] = {}
     fares: dict[str, int] = {}
     for event in events:

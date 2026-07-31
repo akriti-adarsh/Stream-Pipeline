@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,32 @@ class GeneratorConfig:
     ping_interval_sec: float = 30.0
     offline_prob_per_ping: float = 0.004
     diurnal: bool = True
+    # Deliberate imperfections, each with a documented rate. Applied to
+    # rides.events (malformed also to payments). Exclusive per event: a single
+    # roll lands in at most one bucket, so rates do not overlap.
+    dup_rate: float = 0.005
+    ooo_rate: float = 0.02
+    ooo_max_skew_sec: float = 30.0
+    late_rate: float = 0.01
+    late_max_sec: float = 600.0
+    malformed_rate: float = 0.002
+    null_field_rate: float = 0.01
+    # Schema evolution: after this many REAL seconds (sim elapsed = value * speed)
+    # the generator switches to payload_version 2 with the promo_code field.
+    evolve_after_sec: float | None = None
+
+    def perfect(self) -> GeneratorConfig:
+        """Copy with every imperfection disabled; the exactly-once kill test
+        uses this so its ledger of acked event ids is exact."""
+        return replace(
+            self,
+            dup_rate=0.0,
+            ooo_rate=0.0,
+            late_rate=0.0,
+            malformed_rate=0.0,
+            null_field_rate=0.0,
+            abandon_rate=0.0,
+        )
 
     def cancel_prob(self, stage: str) -> float:
         """Cancellation probability entering a lifecycle stage (about 8 percent overall)."""

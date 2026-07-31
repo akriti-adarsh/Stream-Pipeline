@@ -40,6 +40,8 @@ BASE_FARE_CENTS = 5000
 PER_KM_CENTS = 1500
 PER_MIN_CENTS = 200
 
+PROMO_CODES = ("SAVE10", "FIRST50", "WKND20", "MONSOON15")
+
 
 @dataclass
 class ActiveRide:
@@ -59,13 +61,17 @@ class ActiveRide:
     stop_after: RideEventType | None = None
     distance_km: float = 0.0
     duration_sec: float = 0.0
+    promo_code: str | None = None
 
 
 class RideSimulator:
-    def __init__(self, cfg: GeneratorConfig, rng: Random, fleet: DriverFleet) -> None:
+    def __init__(
+        self, cfg: GeneratorConfig, rng: Random, fleet: DriverFleet, anchor_ms: int = 0
+    ) -> None:
         self._cfg = cfg
         self._rng = rng
         self._fleet = fleet
+        self._anchor_ms = anchor_ms
         self._active: dict[str, ActiveRide] = {}
         self._payments: list[tuple[int, SourceEvent]] = []
         self._counter = 0
@@ -120,6 +126,8 @@ class RideSimulator:
         )
         ride.requested_ms = now_ms + self._rng.randrange(self._cfg.tick_ms)
         ride.distance_km = haversine_km(*pickup, *dropoff)
+        if self._rng.random() < 0.15:
+            ride.promo_code = self._rng.choice(PROMO_CODES)
         ride.machine.advance(RideEventType.REQUESTED)
         if self._rng.random() < self._cfg.abandon_rate:
             ride.stop_after = self._rng.choice(
@@ -127,6 +135,7 @@ class RideSimulator:
             )
         self._schedule_after_requested(ride)
         self._active[ride_id] = ride
+        version = self._payload_version(ride.requested_ms)
         return ride_event(
             ride_id=ride_id,
             event_type=RideEventType.REQUESTED,
@@ -136,7 +145,17 @@ class RideSimulator:
             pickup=ride.pickup,
             dropoff=ride.dropoff,
             surge_multiplier=ride.surge,
+            payload_version=version,
+            promo_code=ride.promo_code if version >= 2 else None,
         )
+
+    def _payload_version(self, at_ms: int) -> int:
+        """Schema evolution switch: v2 once the run is evolve_after_sec real
+        seconds old (sim elapsed = real seconds times speed)."""
+        if self._cfg.evolve_after_sec is None:
+            return 1
+        elapsed_sim_sec = (at_ms - self._anchor_ms) / 1000.0
+        return 2 if elapsed_sim_sec >= self._cfg.evolve_after_sec * self._cfg.speed else 1
 
     def _pick_city(self) -> City:
         roll = self._rng.random() * TOTAL_DEMAND_WEIGHT
@@ -217,6 +236,7 @@ class RideSimulator:
             RideEventType.STARTED,
             RideEventType.COMPLETED,
         )
+        version = self._payload_version(at_ms)
         return ride_event(
             ride_id=ride.ride_id,
             event_type=event_type,
@@ -228,6 +248,8 @@ class RideSimulator:
             surge_multiplier=ride.surge,
             driver_id=ride.driver_id,
             fare_cents=ride.fare_cents if event_type is RideEventType.COMPLETED else None,
+            payload_version=version,
+            promo_code=ride.promo_code if version >= 2 else None,
         )
 
     def _after_matched(self, ride: ActiveRide, at_ms: int) -> None:

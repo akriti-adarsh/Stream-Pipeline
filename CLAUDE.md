@@ -18,8 +18,8 @@ The spec is docs/BUILD_SPEC.md. This file is rules and state; the spec defines t
    green commit and update State. Do not start work you cannot finish.
 
 ## State (update at every commit)
-- Plan position: 4 of 28. Last completed: "feat(generator): geospatial driver movement and diurnal load"
-- Suite at last commit: 48 passed in 51.12s · Coverage: 96.8%
-- Open deviations: 0 · Next up: commits 5–10
+- Plan position: 5 of 28. Last completed: "feat(generator): configurable imperfections and schema evolution"
+- Suite at last commit: 60 passed in 37.07s · Coverage: 94.0%
+- Open deviations: 0 · Next up: commits 6–10
 - Infra pre-verified by agents: compose core healthy in 15.2s (Redpanda v25.3.15, PG 16.14, MinIO), flink 1.20.5 image + jars built, iceberg-rest-fixture 1.10.1; host ports 19092/18081/5433/19000/18080
 - Notes for next session: Windows host; make available in Git Bash; Docker 29.6.2 with 16.4 GB

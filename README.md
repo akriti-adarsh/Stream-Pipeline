@@ -71,7 +71,7 @@ flowchart LR
 | 2 | Avro and JSON schemas + registry setup | done |
 | 3 | Generator: coherent ride state machine | done |
 | 4 | Generator: geospatial driver movement, diurnal load | done |
-| 5 | Generator: configurable imperfections, schema evolution | pending |
+| 5 | Generator: configurable imperfections, schema evolution | done |
 | 6 | Infra: Redpanda, Console, Postgres, MinIO in compose | pending |
 | 7 | Sessionizer with local state store | pending |
 | 8 | Kafka transactions for exactly-once | pending |

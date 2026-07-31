@@ -20,6 +20,10 @@ class SourceEvent:
     key: str
     value: dict[str, Any]
     ts_ms: int
+    # Set by the imperfection layer: the transport serialises the value
+    # normally, then corrupts the wire bytes so the message is unparseable
+    # downstream and must land in the DLQ.
+    corrupt: bool = False
 
 
 def ride_event(
