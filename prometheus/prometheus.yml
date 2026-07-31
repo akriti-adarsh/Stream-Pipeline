@@ -1,0 +1,38 @@
+# Prometheus scrape config for the stream-pipeline observability layer.
+#
+# The Python processors run ON THE HOST today (uv-managed processes), while
+# Prometheus runs in the compose network, so every target is reached through
+# host.docker.internal. Port conventions live in src/common/metrics.py:
+#   generator 9101, sessionizer 9102, pg-sink 9103, iceberg-sink 9104,
+#   lag-exporter 9105, dq-runner 9109.
+# Each service only answers while its process is running with METRICS_PORT
+# set (the dq-runner uses its own --serve-metrics flag); a down target here
+# means "process not running", which is exactly what the TargetDown alert
+# and the dashboard's targets table are for.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  - job_name: generator
+    static_configs:
+      - targets: ["host.docker.internal:9101"]
+  - job_name: sessionizer
+    static_configs:
+      - targets: ["host.docker.internal:9102"]
+  - job_name: pg-sink
+    static_configs:
+      - targets: ["host.docker.internal:9103"]
+  - job_name: iceberg-sink
+    static_configs:
+      - targets: ["host.docker.internal:9104"]
+  - job_name: lag-exporter
+    static_configs:
+      - targets: ["host.docker.internal:9105"]
+  - job_name: dq-runner
+    static_configs:
+      - targets: ["host.docker.internal:9109"]
