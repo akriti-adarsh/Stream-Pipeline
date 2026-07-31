@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -189,18 +190,26 @@ class Sessionizer:
 
     # ------------------------------------------------------------------- loop
 
-    def run(self, max_batches: int | None = None) -> None:
+    def run(self, max_batches: int | None = None, idle_timeout_sec: float | None = None) -> None:
+        """Consume forever, or until max_batches non-empty batches, or until the
+        topic has been quiet for idle_timeout_sec (bounded runs in tests)."""
         self._producer.init_transactions()
         self._consumer.subscribe(
             [topics.RIDES_EVENTS], on_assign=self.on_assign, on_revoke=self.on_revoke
         )
         batches = 0
+        last_data = time.monotonic()
         self._log.info("sessionizer running", extra=with_ctx(group=self._cfg.group_id))
         try:
             while max_batches is None or batches < max_batches:
                 msgs = self._consumer.consume(self._cfg.batch_max, self._cfg.poll_timeout_sec)
                 if not msgs:
+                    if idle_timeout_sec is not None and (
+                        time.monotonic() - last_data > idle_timeout_sec
+                    ):
+                        break
                     continue
+                last_data = time.monotonic()
                 self.process_batch(msgs)
                 batches += 1
         finally:
