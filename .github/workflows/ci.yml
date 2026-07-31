@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # Daily e2e: the whole platform, cold start to torn down, plus the
+    # exactly-once kill matrix. 03:17 UTC keeps it off peak.
+    - cron: "17 3 * * *"
 
 jobs:
   lint:
@@ -14,8 +19,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - run: uv run ruff check src tests scripts
-      - run: uv run ruff format --check src tests scripts
+      - run: uv run ruff check src tests scripts ui
+      - run: uv run ruff format --check src tests scripts ui
       - run: uv run mypy
 
   unit:
@@ -27,3 +32,45 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - run: uv run pytest -m "not integration" --cov --cov-fail-under=80
+
+  e2e:
+    # Scheduled (plus manual dispatch): cold-start the full platform and
+    # assert row counts across every layer. The retry wraps the whole
+    # HARNESS, never an assertion: infrastructure flakes (image pulls, port
+    # races) get one more try; a failed invariant fails the run.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: make e2e (retry harness once on infra flake)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 20
+          max_attempts: 2
+          command: make e2e
+
+  exactly-once-kill-matrix:
+    # The single most valuable test in the repo, on a schedule: SIGKILL the
+    # processors at four different points and prove no loss, no duplicates.
+    # Never retried: its brittleness to real duplicates is its entire value.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: bring up the core stack
+        run: docker compose --profile core up -d --wait
+      - name: run the kill matrix
+        run: uv run pytest tests/integration/test_exactly_once.py -m integration -v
+      - name: tear down
+        if: always()
+        run: docker compose --profile full down -v --remove-orphans

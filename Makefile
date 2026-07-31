@@ -30,7 +30,19 @@ down:
 	$(COMPOSE) --profile full down -v --remove-orphans
 
 seed:
-	uv run python -m generator --speed 60 --duration 120 --seed 42
+	uv run python -m generator --sink kafka --speed 60 --duration 120 --seed 42
+
+dbt-build:
+	uv run dbt build --project-dir dbt --profiles-dir dbt
+
+dq:
+	uv run python -m quality.runner --mode warn
+
+dq-fail:
+	uv run python -m quality.runner --mode fail
+
+kill-test:
+	uv run pytest tests/integration/test_exactly_once.py -m integration -v
 
 e2e:
 	bash scripts/e2e.sh
