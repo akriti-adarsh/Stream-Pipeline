@@ -1,0 +1,49 @@
+{
+  "measured_at": "2026-07-31T13:15:16+00:00",
+  "profile": "full (containerised services)",
+  "throughput": {
+    "window_sec": 60.0,
+    "broker_msgs_per_sec": 3636.3,
+    "pg_rows_per_sec": 3675.6,
+    "broker_msgs_in_window": 218180,
+    "pg_rows_in_window": 220538
+  },
+  "latency_produce_to_queryable": {
+    "markers": 30,
+    "p50_sec": 0.312,
+    "p95_sec": 0.36,
+    "max_sec": 0.375,
+    "samples_sec": [
+      0.109,
+      0.312,
+      0.313,
+      0.313,
+      0.25,
+      0.359,
+      0.312,
+      0.36,
+      0.375,
+      0.312,
+      0.36,
+      0.313,
+      0.25,
+      0.312,
+      0.359,
+      0.313,
+      0.218,
+      0.156,
+      0.156,
+      0.156,
+      0.203,
+      0.156,
+      0.266,
+      0.359,
+      0.359,
+      0.312,
+      0.359,
+      0.11,
+      0.36,
+      0.312
+    ]
+  }
+}
